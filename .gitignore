@@ -1,0 +1,43 @@
+# --- Node / Frontend ---
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
+
+# --- Python / Backend ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+backend/htmlcov/
+*.egg-info/
+
+# --- Secrets & lokale Konfiguration (NIE committen) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+infrastructure/k8s/**/secret*.yaml
+!infrastructure/k8s/**/secret*.example.yaml
+
+# --- Build-Artefakte ---
+*.tar
+dist/
+build/
+team-*.zip
+submission/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# evidence/ wird bewusst versioniert (Nachweise aller Pipeline-Runs)
