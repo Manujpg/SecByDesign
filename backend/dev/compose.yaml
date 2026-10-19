@@ -1,0 +1,31 @@
+# Nur für die lokale Entwicklung: PostgreSQL mit denselben zwei Rollen wie im Cluster.
+# Host-Port 55432, damit eine evtl. lokal installierte PostgreSQL (5432) nicht kollidiert.
+#   cd backend && docker compose -f dev/compose.yaml --env-file .env up -d
+# Passwörter kommen aus backend/.env (nicht im Repo, Vorlage: .env.example).
+
+name: praxistermin-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?in .env setzen}
+      POSTGRES_DB: postgres
+      PRAXIS_DB_NAME: ${DB_NAME:-praxistermin}
+      PRAXIS_MIGRATE_PASSWORD: ${DB_MIGRATE_PASSWORD:?in .env setzen}
+      PRAXIS_APP_PASSWORD: ${DB_PASSWORD:?in .env setzen}
+    ports:
+      # Nur an localhost binden, nicht im ganzen Netz erreichbar.
+      - "127.0.0.1:${DB_PORT:-55432}:5432"
+    volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

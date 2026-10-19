@@ -121,6 +121,47 @@ down: ## Cluster löschen
 logs: ## Logs aller Pods im Namespace
 	kubectl -n "$(NAMESPACE)" logs -l app.kubernetes.io/part-of=praxis-termine --all-containers --tail=200
 
+# ----- Backend-Entwicklung (Paket M2) -----------------------------------------
+BACKEND_DIR := backend
+# Python im venv, relativ zu backend/ (Windows: Scripts/python.exe, Linux/WSL: bin/python)
+BACKEND_PY  := .venv/Scripts/python.exe
+ifeq ($(wildcard $(BACKEND_DIR)/$(BACKEND_PY)),)
+BACKEND_PY  := .venv/bin/python
+endif
+DEV_COMPOSE := docker compose -f $(BACKEND_DIR)/dev/compose.yaml --env-file $(BACKEND_DIR)/.env
+
+.PHONY: backend-lock
+backend-lock: ## Lockfiles mit Hashes neu erzeugen (nach Änderung in pyproject.toml)
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m uv pip compile pyproject.toml --universal --python-version 3.14 --generate-hashes --no-header -q -o requirements.lock
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m uv pip compile pyproject.toml --extra dev --universal --python-version 3.14 --generate-hashes --no-header -q -o requirements-dev.lock
+
+.PHONY: backend-test
+backend-test: ## Ruff, pytest und Bandit für das Backend
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m ruff check . && $(BACKEND_PY) -m ruff format --check .
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m pytest
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m bandit -q -c pyproject.toml -r app migrations
+
+.PHONY: backend-db-up
+backend-db-up: ## Lokale Entwicklungs-PostgreSQL starten (Port 55432)
+	$(DEV_COMPOSE) up -d --wait
+
+.PHONY: backend-db-down
+backend-db-down: ## Lokale Entwicklungs-PostgreSQL stoppen (Daten bleiben erhalten)
+	$(DEV_COMPOSE) down
+
+.PHONY: backend-migrate
+backend-migrate: ## Migrationen als praxis_migrate auf die Entwicklungs-DB anwenden
+	cd $(BACKEND_DIR) && DB_USER=praxis_migrate DB_PASSWORD="$$(grep '^DB_MIGRATE_PASSWORD=' .env | cut -d= -f2)" $(BACKEND_PY) -m alembic upgrade head
+
+.PHONY: backend-run
+backend-run: ## API lokal mit Auto-Reload starten (APP_ENV aus backend/.env)
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --no-server-header
+
+.PHONY: backend-image
+backend-image: ## Backend-Image bauen und mit Trivy gegen das Quality Gate prüfen
+	docker build -t "$(BACKEND_IMAGE):$(IMAGE_TAG)" --build-arg APP_VERSION="$(VERSION)" --build-arg GIT_SHA="$(GIT_SHA)" ./$(BACKEND_DIR)
+	trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --exit-code 1 "$(BACKEND_IMAGE):$(IMAGE_TAG)"
+
 # ----- Lokale Sicherheitsprüfungen (Spiegel der Pipeline) --------------------
 .PHONY: scan
 scan: sbom sast sca secrets-scan ## Alle Scans lokal ausführen
@@ -133,7 +174,7 @@ sbom: ## SBOM (CycloneDX) für beide Komponenten
 .PHONY: sast
 sast: ## SAST mit Semgrep und Bandit
 	docker run --rm -v "$$PWD:/src" semgrep/semgrep semgrep scan --config p/owasp-top-ten --config p/python --config p/typescript --sarif --output /src/evidence/backend/sast/local-$(GIT_SHA)-semgrep.sarif /src
-	docker run --rm -v "$$PWD:/src" python:3.12-slim sh -c "pip install -q bandit && bandit -r /src/backend -f json -o /src/evidence/backend/sast/local-$(GIT_SHA)-bandit.json || true"
+	docker run --rm -v "$$PWD:/src" python:3.14-alpine sh -c "pip install -q 'bandit[toml]' && bandit -c /src/backend/pyproject.toml -r /src/backend/app /src/backend/migrations -f json -o /src/evidence/backend/sast/local-$(GIT_SHA)-bandit.json || true"
 
 .PHONY: sca
 sca: ## SCA mit Trivy (Dateisystem)

@@ -88,11 +88,11 @@ Designsystem, der Eigenanteil liegt bei drei kleinen Komponenten und den Seiten-
 
 | Risiko | Auswirkung | Gegenmaßnahme |
 |---|---|---|
-| Quality Gate blockiert durch HIGH-CVE in Basis-Image | Pipeline rot, kein Push | Schlanke Basis-Images (python:3.12-slim, nginx-unprivileged alpine), wöchentliches Rebuild, dokumentierte Ausnahmen nur mit Begründung in `.trivyignore` |
+| Quality Gate blockiert durch HIGH-CVE in Basis-Image | Pipeline rot, kein Push | Schlanke Basis-Images (python:3.14-alpine statt slim, siehe ADR A13; nginx-unprivileged alpine), wöchentliches Rebuild, dokumentierte Ausnahmen nur mit Begründung in `.trivyignore` |
 | kind im GitHub-Runner zu langsam/instabil | Deploy-Test flaky | Timeouts großzügig, ein Replica, Images per Digest cachen; Fallback: Deploy-Test nur auf `main` |
 | Frontend-Aufwand unterschätzt | Zeitverzug | Strikt shadcn/ui, Seiteninventar nicht erweitern, Admin-Seiten als einfache Tabellen |
 | Evidence-Commit aus Pipeline kollidiert mit Branch Protection | Evidence fehlt im Repo | Bot-Commit mit `[skip ci]` auf `main` per PAT mit `contents:write`, alternativ Evidence-PR |
-| Windows-Toolchain (make, bash) | `make up` läuft nicht auf Windows | Git Bash + `choco install make kind kubectl`, Skripte in POSIX-sh, im README dokumentiert |
+| Windows-Toolchain (make, bash) | `make up` läuft nicht auf Windows; **eingetreten 19.10.:** Smart App Control blockiert `make.exe`, `kind.exe` und kompilierte Python-Erweiterungen | `make up` in WSL2 (ADR A14); Backend-Tests unter Windows mit SQLAlchemy ohne C-Erweiterung; CI läuft unter Linux und ist nicht betroffen |
 
 ## 6. Nächste konkrete Schritte (diese Woche)
 
@@ -100,3 +100,11 @@ Designsystem, der Eigenanteil liegt bei drei kleinen Komponenten und den Seiten-
 2. **Laszlo:** kind, kubectl, make, Docker Desktop installieren; `kind create cluster` testen; Architektur lesen und Rückfragen notieren.
 3. **Beide:** Security Requirements durchgehen und abzeichnen; Praxisname bestätigen.
 4. **Manuel:** Woche 2 starten mit M2 (Backend-Kern) und M7 (Dockerfile Backend).
+
+## 7. Fortschritt
+
+| Datum | Paket | Stand |
+|---|---|---|
+| 07.10.2026 | M1 | Repo `Manujpg/SecByDesign` angelegt, Skelett gepusht, Branch Protection auf `main` |
+| 19.10.2026 | M2 | Backend-Kern fertig: Konfiguration ohne Default-Secrets, JSON-Logging mit Request-ID, einheitliche Fehlerantworten ohne Informationslecks, Security-Header, Health/Ready, Datenmodell mit DB-Constraints (u. a. Schutz vor Doppelbuchung), Alembic-Migration 0001 mit append-only Audit-Log, Dev-PostgreSQL mit zwei DB-Rollen, 25 Tests grün, Ruff und Bandit ohne Funde |
+| 19.10.2026 | M7 (Backend) | Dockerfile Multi-Stage auf `python:3.14-alpine` (Digest gepinnt), Hash-geprüfte Abhängigkeiten, non-root, read-only lauffähig; Trivy: 0 HIGH/CRITICAL; pip-audit: keine bekannten Schwachstellen |

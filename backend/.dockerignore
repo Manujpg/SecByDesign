@@ -1,0 +1,9 @@
+# Nur das Nötigste in den Build-Kontext (keine Secrets, keine Dev-Dateien)
+*
+!app/
+!migrations/
+!alembic.ini
+!requirements.lock
+
+**/__pycache__
+**/*.pyc

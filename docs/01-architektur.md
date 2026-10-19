@@ -70,10 +70,10 @@ Selbstregistrierung erzeugt immer die Rolle PATIENT.
 |---|---|---|
 | Frontend | React 19 + TypeScript, Vite, Tailwind CSS v4, shadcn/ui (Radix-Primitives), React Router, TanStack Query, react-hook-form + zod | Wenig Eigencode durch fertige, barrierefreie Komponenten; zod-Schemas spiegeln die Backend-Validierung; statischer Build ohne Server-Logik |
 | Frontend-Auslieferung | `nginxinc/nginx-unprivileged` (Port 8080) | Läuft ohne Root, setzt Security-Header und CSP, minimale Angriffsfläche |
-| Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.x, Alembic, uvicorn | Strikte Schema-Validierung out of the box, OpenAPI-Dokumentation, gutes Security-Tooling (Bandit, Semgrep, pip-audit), vorhandene Python-Erfahrung im Team |
+| Backend | Python 3.14, FastAPI, Pydantic v2, SQLAlchemy 2.x, Alembic, uvicorn | Strikte Schema-Validierung out of the box, OpenAPI-Dokumentation, gutes Security-Tooling (Bandit, Semgrep, pip-audit), vorhandene Python-Erfahrung im Team |
 | Auth | Argon2id (`argon2-cffi`), serverseitige Sessions (opaker Token, gehasht in DB), HttpOnly-Cookie, TOTP-MFA (`pyotp`) | Kein JWT-Algorithmus-Verwirrungsrisiko, Sitzungen jederzeit serverseitig widerrufbar, MFA ohne externe Dienste |
 | Datenbank | PostgreSQL 16 (offizielles Image, non-root), StatefulSet + PVC | Realistische Trennung in eigene Komponente, eigene Vertrauensgrenze, saubere NetworkPolicy-Demonstration |
-| Container | Multi-Stage-Dockerfiles, Basis-Images per Digest gepinnt, non-root, `readOnlyRootFilesystem` | Reproduzierbare Builds, Supply-Chain-Härtung |
+| Container | Multi-Stage-Dockerfiles, Basis-Images per Digest gepinnt (Backend: `python:3.14-alpine`), non-root (UID 10001), `readOnlyRootFilesystem`, Abhängigkeiten nur mit Hash-Prüfung | Reproduzierbare Builds, Supply-Chain-Härtung |
 | Orchestrierung | Kubernetes via **kind** (lokal und im CI-Runner), ingress-nginx, Kustomize (base + overlays `local`/`ci`) | kind läuft identisch in GitHub Actions und auf dem Laptop; Kustomize ohne Templating-Sprache ist leichter zu reviewen als Helm |
 | CI/CD | GitHub Actions | Repo liegt auf GitHub; Marketplace-Actions für alle Scanner |
 | Registry | GitHub Container Registry (GHCR) | Zwischeninstanz laut Aufgabe; Zugriff mit `GITHUB_TOKEN` ohne weitere Secrets |
@@ -82,7 +82,7 @@ Selbstregistrierung erzeugt immer die Rolle PATIENT.
 | SCA | Trivy (fs + image), pip-audit, npm audit | CVSS-basierte Bewertung, Quality Gate auf HIGH/CRITICAL |
 | Secret-Scan | Gitleaks (gesamte Historie) | Gate: Abbruch bei jedem Fund |
 | Signatur (Bonus) | cosign keyless (Sigstore) | Image-Herkunft nachweisbar, optional |
-| Build-Blaupause | GNU Make (`make up`) | Von der Aufgabe gefordert; auf Windows via `choco install make` |
+| Build-Blaupause | GNU Make (`make up`) | Von der Aufgabe gefordert; Ausführung unter Linux, macOS oder WSL2 (siehe A14) |
 
 ---
 
@@ -214,7 +214,7 @@ Alle Endpunkte unter `/api/v1`, JSON, Fehlerschema
 | `GET /doctor/schedule?date` · `PATCH /doctor/appointments/{id}/status` | DOCTOR | Tagesplan, Status |
 | `GET/POST/PATCH /admin/users` · `GET/POST/PATCH /admin/doctors` · `GET/POST/PATCH /admin/services` | ADMIN | Verwaltung |
 | `GET /admin/audit` | ADMIN | Audit-Log |
-| `GET /healthz` · `GET /readyz` | – | Probes (keine Versions-/Stack-Infos) |
+| `GET /healthz` · `GET /readyz` | – | Probes (keine Versions-/Stack-Infos); zusätzlich unter `/api/v1/` für den Smoke-Test über den Ingress |
 
 OpenAPI-UI (`/docs`) ist nur im Entwicklungsmodus aktiv, im Cluster deaktiviert.
 
@@ -261,6 +261,10 @@ wendet `infrastructure/k8s/overlays/local` an, wartet auf Health und gibt `Ready
 | A9 | Secrets zur Deploy-Zeit generieren | Sealed Secrets, SOPS, Vault | Für ein lokales Cluster ausreichend und ohne weitere Infrastruktur; keine Secrets im Repo; in der Doku als Abweichung reflektiert |
 | A10 | TLS mit selbstsigniertem Zertifikat am Ingress | cert-manager mit Let's Encrypt | Kein öffentlicher Hostname vorhanden; HSTS/Secure-Cookies trotzdem demonstrierbar |
 | A11 | MFA per TOTP | WebAuthn/Passkeys, SMS | Ohne externe Dienste umsetzbar, +10 Bonuspunkte, Standard-Apps nutzbar |
+| A12 | Python 3.14 statt 3.12 (19.10.2026) | Python 3.12 | Aktuelle stabile Version, lokal installiert, alle Abhängigkeiten haben Wheels; längerer Support-Zeitraum |
+| A13 | Backend-Basis-Image `python:3.14-alpine` statt `python:3.14-slim` (19.10.2026) | Debian-slim, Distroless, Chainguard | slim enthielt 44 HIGH-CVEs in Systempaketen (util-linux, ncurses, perl) ohne verfügbaren Fix und hätte das Quality Gate dauerhaft blockiert; Alpine: 0 HIGH/CRITICAL, 100 MB kleiner, Shell für Healthcheck vorhanden |
+| A14 | `make up` unter Linux/macOS/WSL2 (19.10.2026) | Native Windows-Ausführung | Die Windows-„Intelligente App-Steuerung“ blockiert unsignierte Binärdateien (`make.exe`, `kind.exe`, kompilierte Python-Erweiterungen); WSL2 ist ohnehin die Docker-Desktop-Basis und entspricht der Linux-Umgebung der Pipeline |
+| A15 | Sync-SQLAlchemy mit psycopg 3, Lockfiles mit Hashes via `uv pip compile --universal` | async SQLAlchemy, Poetry | Einfacher, für die Last ausreichend; Hash-Pinning schützt vor manipulierten Paketen (Supply Chain) |
 
 ---
 
@@ -285,4 +289,4 @@ der Abschlussdokumentation übernommen.
 - [ ] GitHub-Repository anlegen (privat), Dozent als Maintainer eintragen, Branch Protection auf `main`
 - [ ] GHCR-Paket-Sichtbarkeit festlegen (öffentlich = kein Pull-Secret nötig; privat = Pull-Secret via Makefile)
 - [x] Praxisname bestätigt: „Ärztehaus Lindle“ (07.10.2026)
-- [ ] Toolchain lokal installieren (siehe README: kind, make, Node 22, Python 3.12)
+- [x] Toolchain lokal installieren (Manuel, 19.10.2026: Python 3.14, Docker, trivy; make/kind in WSL nachziehen)
