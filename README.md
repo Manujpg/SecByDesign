@@ -8,8 +8,10 @@ PostgreSQL), entwickelt nach Security-by-Design-Prinzipien und ausgeliefert übe
 reproduzierbare CI/CD-Lieferkette (SBOM, SAST, SCA, Secret-Scan, Quality Gate,
 Container-Registry) auf ein lokales Kubernetes-Cluster (kind).
 
-> **Status (Woche 1):** Architektur, Security Requirements, Designsystem und Projektplan
-> sind definiert. Code, Manifeste und Pipeline folgen gemäß [Projektplan](docs/04-projektplan.md).
+> **Status (19.10.2026):** Architektur, Security Requirements, Designsystem und Projektplan
+> sind definiert. Backend-Kern (Paket M2) mit Datenmodell, Migrationen, Fehlerbehandlung,
+> Health-Endpunkten und gehärtetem Dockerfile steht, siehe [backend/README.md](backend/README.md).
+> Frontend, Manifeste und Pipeline folgen gemäß [Projektplan](docs/04-projektplan.md).
 
 ## Dokumentation
 
@@ -27,7 +29,7 @@ Container-Registry) auf ein lokales Kubernetes-Cluster (kind).
 ```
 .
 ├── frontend/                 React 19 + TypeScript + Vite + Tailwind + shadcn/ui
-├── backend/                  FastAPI (Python 3.12), SQLAlchemy, Alembic
+├── backend/                  FastAPI (Python 3.14), SQLAlchemy, Alembic
 ├── infrastructure/
 │   ├── kind/                 kind-Cluster-Konfiguration (Port-Mapping 80/443)
 │   └── k8s/                  Kustomize: base/ + overlays/{local,ci}
@@ -50,14 +52,24 @@ Container-Registry) auf ein lokales Kubernetes-Cluster (kind).
 |---|---|---|---|
 | Docker Desktop | aktuell | https://www.docker.com/products/docker-desktop/ | `brew install --cask docker` |
 | kubectl | ≥ 1.30 | in Docker Desktop enthalten | `brew install kubectl` |
-| kind | ≥ 0.24 | `choco install kind` | `brew install kind` |
-| GNU Make | ≥ 4 | `choco install make` | vorinstalliert |
+| kind | ≥ 0.24 | in WSL2 (siehe unten) | `brew install kind` |
+| GNU Make | ≥ 4 | in WSL2: `sudo apt install make` | vorinstalliert |
 | Git Bash | aktuell | mit Git for Windows | – |
 | Node.js | 22 LTS | `choco install nodejs-lts` | `brew install node@22` |
-| Python | 3.12 | `choco install python312` | `brew install python@3.12` |
+| Python | 3.14 | `choco install python314` | `brew install python@3.14` |
 | Optional lokal: Trivy, Syft, Gitleaks, Semgrep | aktuell | `choco install trivy`; Rest via Docker-Images im Makefile | `brew install trivy syft gitleaks semgrep` |
 
-Unter Windows werden `make`-Ziele aus der **Git Bash** ausgeführt (das Makefile nutzt POSIX-sh).
+**Windows-Hinweis:** Ist die „Intelligente App-Steuerung“ (Smart App Control) aktiv, blockiert
+Windows unsignierte Programme wie `make.exe` und `kind.exe`. `make up` läuft deshalb unter Windows
+in **WSL2 (Ubuntu)**, das Docker Desktop ohnehin nutzt. Einmalige Einrichtung in der Ubuntu-Shell:
+
+```bash
+sudo apt update && sudo apt install -y make
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64 && chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
+```
+
+In Docker Desktop unter Settings → Resources → WSL Integration muss „Ubuntu“ aktiviert sein.
+Das Repository erreicht man in WSL unter `/mnt/c/Users/<name>/Desktop/SecByDesign`.
 
 ### Schnellstart (Zielzustand, sobald Code und Manifeste vorhanden sind)
 
@@ -95,7 +107,7 @@ pip install -e ".[dev]" && cp .env.example .env && uvicorn app.main:app --reload
 cd frontend && npm ci && npm run dev
 ```
 
-(Details folgen mit dem Code in Woche 2.)
+Details zum Backend: [backend/README.md](backend/README.md).
 
 ## Sicherheitsüberblick
 

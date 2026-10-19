@@ -1,0 +1,54 @@
+[project]
+name = "praxistermin-backend"
+version = "0.1.0"
+description = "PraxisTermin – REST-API für die Terminbuchung im Ärztehaus Lindle"
+requires-python = ">=3.14,<3.15"
+readme = "README.md"
+dependencies = [
+  "fastapi>=0.118",
+  "pydantic>=2.11",
+  "pydantic-settings>=2.10",
+  "sqlalchemy>=2.0.40",
+  "alembic>=1.16",
+  "psycopg[binary]>=3.2.10",
+  "uvicorn>=0.37",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4",
+  "httpx>=0.28",
+  "ruff>=0.13",
+  "bandit[toml]>=1.8",
+  "pip-audit>=2.9",
+]
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+# ---------------------------------------------------------------------------
+# Qualität und Sicherheit
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+# E/F/W: Basis, I: Imports, B: Bugbear, S: Bandit-Regeln, UP: moderne Syntax,
+# SIM: Vereinfachungen, PT: pytest-Stil, RUF: Ruff-eigene Regeln
+select = ["E", "F", "W", "I", "B", "S", "UP", "SIM", "PT", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]  # assert und Test-Passwörter sind in Tests erlaubt
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "migrations/versions"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

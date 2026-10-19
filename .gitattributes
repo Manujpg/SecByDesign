@@ -1,0 +1,5 @@
+# Shell-Skripte und Makefile laufen in Linux-Containern bzw. Git Bash: immer LF
+*.sh      text eol=lf
+Makefile  text eol=lf
+Dockerfile text eol=lf
+*.lock    text eol=lf

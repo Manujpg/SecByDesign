@@ -22,7 +22,8 @@ backend/htmlcov/
 *.pem
 *.key
 *.crt
-secrets/
+# Lokale Secret-Ordner (nur im Repo-Root); evidence/*/secrets/ enthält Scan-Berichte und wird versioniert
+/secrets/
 infrastructure/k8s/**/secret*.yaml
 !infrastructure/k8s/**/secret*.example.yaml
 
