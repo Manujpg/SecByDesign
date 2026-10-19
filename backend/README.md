@@ -20,8 +20,8 @@ backend/
 ├── dev/                   Lokale PostgreSQL per Docker Compose + Rollen-Init-Skript
 ├── Dockerfile             Multi-Stage, Alpine, non-root, Digest-gepinnt
 ├── pyproject.toml         Abhängigkeiten + Ruff/Bandit/pytest-Konfiguration
-├── requirements.lock      Gepinnte Laufzeit-Abhängigkeiten mit SHA-256-Hashes
-└── requirements-dev.lock  Dasselbe inkl. Test- und Scan-Werkzeuge
+├── requirements.txt      Gepinnte Laufzeit-Abhängigkeiten mit SHA-256-Hashes
+└── requirements-dev.txt  Dasselbe inkl. Test- und Scan-Werkzeuge
 ```
 
 ## Lokale Entwicklung (Git Bash)
@@ -33,7 +33,7 @@ py -3.14 -m venv .venv
 # SQLAlchemy ohne C-Erweiterung, weil die Windows-"Intelligente App-Steuerung"
 # unsignierte DLLs aus dem venv blockiert (betrifft nur Windows, nicht Docker/CI):
 DISABLE_SQLALCHEMY_CEXT=1 .venv/Scripts/python.exe -m uv pip install --python .venv/Scripts/python.exe \
-  --no-binary sqlalchemy --require-hashes -r requirements-dev.lock
+  --no-binary sqlalchemy --require-hashes -r requirements-dev.txt
 .venv/Scripts/python.exe -m uv pip install --python .venv/Scripts/python.exe --no-deps -e .
 
 cp .env.example .env          # danach Passwörter eintragen (openssl rand -hex 24)

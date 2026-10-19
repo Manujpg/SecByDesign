@@ -132,8 +132,8 @@ DEV_COMPOSE := docker compose -f $(BACKEND_DIR)/dev/compose.yaml --env-file $(BA
 
 .PHONY: backend-lock
 backend-lock: ## Lockfiles mit Hashes neu erzeugen (nach Änderung in pyproject.toml)
-	cd $(BACKEND_DIR) && $(BACKEND_PY) -m uv pip compile pyproject.toml --universal --python-version 3.14 --generate-hashes --no-header -q -o requirements.lock
-	cd $(BACKEND_DIR) && $(BACKEND_PY) -m uv pip compile pyproject.toml --extra dev --universal --python-version 3.14 --generate-hashes --no-header -q -o requirements-dev.lock
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m uv pip compile pyproject.toml --universal --python-version 3.14 --generate-hashes --no-header -q -o requirements.txt
+	cd $(BACKEND_DIR) && $(BACKEND_PY) -m uv pip compile pyproject.toml --extra dev --universal --python-version 3.14 --generate-hashes --no-header -q -o requirements-dev.txt
 
 .PHONY: backend-test
 backend-test: ## Ruff, pytest und Bandit für das Backend

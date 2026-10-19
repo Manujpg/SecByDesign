@@ -3,7 +3,7 @@
 !app/
 !migrations/
 !alembic.ini
-!requirements.lock
+!requirements.txt
 
 **/__pycache__
 **/*.pyc

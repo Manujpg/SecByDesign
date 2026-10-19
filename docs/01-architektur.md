@@ -253,7 +253,7 @@ Evidence-Ordner.
 | 5 Build | `npm run build`, `pip install` + Tests (pytest, vitest) | Unit-Tests müssen grün sein |
 | 6 Container-Build | Docker Buildx, Multi-Stage, Basis-Images per Digest | Image-Tag `<version>-<sha>` |
 | 7 Image-Scan + Image-SBOM | Trivy image, Syft | Gleiche Gates wie 3; SBOM des finalen Images |
-| 8 Quality Gate | Skript `scripts/quality-gate.py` aggregiert alle Reports | Fail → Pipeline bricht ab, kein Push |
+| 8 Quality Gate | Skript `scripts/quality_gate.py` aggregiert alle Reports (fail-closed: fehlender, leerer oder inhaltsloser Bericht = Abbruch) | Fail → Pipeline bricht ab, kein Push |
 | 9 Push | GHCR, Digest wird ausgegeben; cosign keyless (Bonus) | `image-ref.txt`, `digest.txt` |
 | 10 Deploy-Test | kind im Runner, ingress-nginx, Overlay `ci`, Image per Digest | `kubectl rollout status`, Smoke-Test `GET /healthz` + Login-Seite über Ingress |
 | 11 Evidence | Run-Log + alle Reports | Upload als Artefakt und Commit nach `/evidence/**` (`[skip ci]`) |
@@ -287,6 +287,10 @@ wendet `infrastructure/k8s/overlays/local` an, wartet auf Health und gibt `Ready
 | A17 | Rate-Limit aus dem Audit-Log statt eigener Zählertabelle (M3) | Zähler in `users`, Redis, In-Memory | Keine zusätzliche Komponente; append-only Daten sind für die App nicht manipulierbar; einheitliches Verhalten für existierende und unbekannte Konten |
 | A18 | MFA-Zwischenzustand als Sitzung mit `mfa_verified=false` und 5 min Laufzeit (M3) | Zweites Cookie `mfa_pending` | Ein Mechanismus statt zwei; dieselben Schutzmaßnahmen (Hash, Rotation, Widerruf) gelten auch für den Zwischenzustand |
 | A20 | AES-256-GCM aus `cryptography` mit HKDF-abgeleitetem Schlüssel und Nutzer-ID als AAD (M4) | Fernet, Klartext-Secret, eigener KMS | Authentifizierte Verschlüsselung, Bindung an das Konto, Versionierung für Schlüsselwechsel; keine zusätzliche Infrastruktur |
+| A22 | Keine Fremd-Actions: nur `actions/*` per Commit-SHA, Scanner als Container-Images mit Version und Digest (M8) | Marketplace-Actions wie `trivy-action`, `gitleaks-action` | Kleinere Lieferketten-Angriffsfläche (vgl. Kompromittierung von `tj-actions/changed-files` 2025); Repo-Einstellung erlaubt nur GitHub-eigene Actions |
+| A23 | Zentrales Quality Gate statt Abbruch in jedem Scanner-Job (M8) | `--exit-code 1` je Scanner | Ein einziger Pflicht-Check für den Branch-Schutz; alle Berichte entstehen auch bei Funden; prüft zusätzlich Vollständigkeit (fail-closed) |
+| A24 | Lockfiles als `requirements.txt`/`requirements-dev.txt` statt `.lock` (M8) | Sonderoptionen je Scanner | Syft und Trivy erkannten `.lock` nicht und meldeten still „0 Funde“; Standardnamen funktionieren auch mit GitHubs Dependency-Graph |
+| A25 | Trivy entscheidet über die CVSS-Schwelle, pip-audit nur als Warnung (M8) | pip-audit als Gate | pip-audit liefert keine CVSS-Werte; Trivy liefert Severity und CVSS aus NVD/GHSA |
 | A21 | QR-Code im Frontend aus der otpauth-URI statt PNG aus dem Backend (M4) | `qrcode`-Bibliothek im Backend | Weniger Abhängigkeiten im Backend-Image; das Secret wird ohnehin einmalig an den Browser übertragen |
 | A19 | Admin-Bootstrap beim App-Start (Lifespan) statt im Init-Container (M3) | Eigenes CLI-Kommando im Init-Container | Nur das Backend erhält das Secret `admin-bootstrap`; idempotent, legt nur an, solange die Tabelle `users` leer ist |
 
