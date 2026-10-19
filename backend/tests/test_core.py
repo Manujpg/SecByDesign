@@ -157,12 +157,14 @@ def test_prod_requires_db_password(monkeypatch) -> None:
 def test_prod_rejects_database_url(monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "sqlite:///x.db")
     with pytest.raises(ValueError, match="DATABASE_URL"):
-        Settings(app_env="prod", db_password="x", _env_file=None)
+        Settings(app_env="prod", db_password="x", app_secret_key="k" * 32, _env_file=None)
 
 
 def test_password_not_in_settings_repr(monkeypatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    s = Settings(app_env="prod", db_password="SuperGeheim123", _env_file=None)
+    s = Settings(
+        app_env="prod", db_password="SuperGeheim123", app_secret_key="k" * 32, _env_file=None
+    )
     assert "SuperGeheim123" not in repr(s)
     assert "SuperGeheim123" not in s.sqlalchemy_url().render_as_string(hide_password=True)
 
@@ -170,3 +172,21 @@ def test_password_not_in_settings_repr(monkeypatch) -> None:
 def test_invalid_app_role_rejected() -> None:
     with pytest.raises(ValueError, match="Rollenname"):
         Settings(app_env="test", db_app_role="x; DROP TABLE users", _env_file=None)
+
+
+def test_prod_requires_app_secret_key(monkeypatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValueError, match="APP_SECRET_KEY"):
+        Settings(app_env="prod", db_password="x", _env_file=None)
+
+
+def test_short_app_secret_key_rejected() -> None:
+    with pytest.raises(ValueError, match="32 Zeichen"):
+        Settings(app_env="test", app_secret_key="zu-kurz", _env_file=None)
+
+
+def test_config_errors_do_not_leak_secrets(monkeypatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValueError, match="APP_SECRET_KEY") as exc_info:
+        Settings(app_env="prod", db_password="Geheimes-DB-Passwort", _env_file=None)
+    assert "Geheimes-DB-Passwort" not in str(exc_info.value)

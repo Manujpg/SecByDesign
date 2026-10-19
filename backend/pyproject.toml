@@ -12,6 +12,11 @@ dependencies = [
   "alembic>=1.16",
   "psycopg[binary]>=3.2.10",
   "uvicorn>=0.37",
+  "argon2-cffi>=25.1",
+  "email-validator>=2.2",
+  "zxcvbn>=4.5",
+  "pyotp>=2.9",
+  "cryptography>=45",
 ]
 
 [project.optional-dependencies]

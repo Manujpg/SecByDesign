@@ -82,6 +82,31 @@ Docker-Build mit `pip install --require-hashes` geprüft.
 | `DB_SSLMODE` | `disable`, `prefer`, `require`, `verify-full` | `prefer` |
 | `DB_APP_ROLE` | Rolle, der die Migration Rechte auf `audit_log` entzieht | `praxis_app` |
 | `FORWARDED_ALLOW_IPS` | IPs, deren `X-Forwarded-For` uvicorn vertraut (Ingress) | `127.0.0.1` |
+| `APP_SECRET_KEY` | Server-Schlüssel, mind. 32 Zeichen (HMAC im Audit-Log, ab M4 TOTP-Verschlüsselung) | ohne Default, in `prod` Pflicht |
+| `ALLOWED_ORIGINS` | Kommagetrennte Origins für POST/PUT/PATCH/DELETE (CSRF-Schutz) | `https://localhost` |
+| `ADMIN_BOOTSTRAP_EMAIL` | E-Mail des ersten Admin-Kontos | `admin@aerztehaus-lindle.de` |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Initialpasswort (mind. 16 Zeichen), nur wirksam solange `users` leer ist | ohne Default; ohne Wert kein Bootstrap |
+| `SESSION_IDLE_MINUTES`, `SESSION_ABSOLUTE_HOURS` | Leerlauf- und Maximaldauer einer Sitzung | `30`, `8` |
+| `LOGIN_MAX_FAILURES`, `LOGIN_WINDOW_MINUTES`, `LOGIN_IP_MAX_FAILURES` | Brute-Force-Grenzen | `10`, `15`, `30` |
+
+## API-Endpunkte (Stand M4)
+
+| Methode und Pfad | Zugriff | Zweck |
+|---|---|---|
+| `GET /healthz`, `GET /readyz` (auch unter `/api/v1/`) | öffentlich | Probes |
+| `POST /api/v1/auth/register` | öffentlich | Patientenkonto anlegen (Antwort immer `202`) |
+| `POST /api/v1/auth/login` | öffentlich | Anmeldung, setzt `__Host-session` |
+| `POST /api/v1/auth/logout` | beliebig | Sitzung serverseitig beenden |
+| `GET /api/v1/auth/session` | Sitzung (auch MFA offen) | Status für das Frontend |
+| `GET /api/v1/auth/me` | angemeldet | Eigenes Konto |
+| `POST /api/v1/auth/password` | angemeldet | Passwortwechsel, beendet alle anderen Sitzungen |
+| `POST /api/v1/auth/mfa/setup` | angemeldet, Passwort aktuell | Neues TOTP-Secret und otpauth-URI für den QR-Code |
+| `POST /api/v1/auth/mfa/confirm` | angemeldet, Passwort aktuell | MFA mit erstem Code aktivieren, liefert 8 Recovery-Codes |
+| `POST /api/v1/auth/mfa/verify` | Zwischensitzung nach Login | Zweiter Faktor: `code` oder `recovery_code` |
+| `POST /api/v1/auth/mfa/recovery-codes` | aktiv | Neue Recovery-Codes (alte werden ungültig) |
+| `POST /api/v1/auth/mfa/disable` | aktiv, nur PATIENT | MFA abschalten mit Passwort und Code |
+
+Alle `POST`-Requests brauchen einen `Origin`-Header aus `ALLOWED_ORIGINS`, sonst `403 origin_rejected`.
 
 ## Hinweise für Kubernetes (Paket L3/L5)
 
@@ -91,4 +116,10 @@ Docker-Build mit `pip install --require-hashes` geprüft.
   und `GET /readyz` (readiness).
 - `readOnlyRootFilesystem: true` funktioniert ohne zusätzliche Volumes; ein
   `emptyDir` auf `/tmp` schadet nicht.
+- **Secrets für den Backend-Container:** `DB_PASSWORD` (praxis_app), `APP_SECRET_KEY`,
+  `ADMIN_BOOTSTRAP_PASSWORD`. Alle zur Deploy-Zeit zufällig erzeugen, nie ins Repo.
+- **`FORWARDED_ALLOW_IPS` setzen** (z. B. Pod-CIDR des Ingress-Controllers oder `*`, da per
+  NetworkPolicy nur der Ingress das Backend erreicht). Sonst sieht die App nur die IP des
+  Ingress-Controllers, und das IP-Rate-Limit sperrt nach 30 Fehlversuchen alle Nutzer:innen.
+- **`ALLOWED_ORIGINS=https://localhost`** (bzw. der Ingress-Hostname), sonst scheitern alle POSTs.
 - Das Rollen-Skript `dev/initdb/01-roles.sh` kann für das PostgreSQL-StatefulSet übernommen werden.

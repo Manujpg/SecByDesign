@@ -49,3 +49,20 @@ wird im Threat Model verfeinert:
 | Information Disclosure | teilweise (Fehlerbehandlung, TLS, Header); Verschlüsselung at rest bewusst nicht | SR-05, SR-09 |
 | Repudiation | teilweise (Audit-Log als SHOULD); keine signierten Logs, kein externes SIEM | SR-11 |
 | Denial of Service | nur Basis (Rate-Limit, Ressourcenlimits); kein WAF/Autoscaling – begründet: lokales Cluster, kein Internet-Exposure | SR-08 |
+
+## Umsetzungsstand
+
+| ID | Stand | Nachweis |
+|---|---|---|
+| SR-01 | **umgesetzt (M3)** | `backend/app/core/security.py`, `services/auth.py`; Tests `test_auth.py` (Argon2id-Hash, identische Fehler, Dummy-Hash für unbekannte E-Mails, Passwortregeln) |
+| SR-02 | **umgesetzt (M4)** | `services/mfa.py`, `core/crypto.py`, Gate `require_active_user`; Tests `test_mfa.py` (Pflicht für Personal/Admin, Replay, Zeitfenster, Fehlversuche, Recovery-Codes, Verschlüsselung) |
+| SR-03 | teilweise (M3) | `require_active_user`, `require_roles`; Objektbezug folgt mit den Fach-Endpunkten (M5, L8, L9) |
+| SR-04 | umgesetzt für bestehende Endpunkte (M2/M3) | `StrictModel` mit `extra="forbid"`, Schemas in `schemas/auth.py`; Tests zu Rolleninjektion und Feldgrenzen |
+| SR-05 | **umgesetzt (M2/M3)** | Einheitliches Fehlerschema, generischer 500, keine Eingabewerte in Konfigurationsfehlern (`hide_input_in_errors`) |
+| SR-06 | Anwendungsseite umgesetzt | Keine Default-Secrets; `APP_SECRET_KEY`, `DB_PASSWORD` Pflicht in prod; Gitleaks ohne Funde |
+| SR-07 | **umgesetzt (M3)** | `services/sessions.py`, `core/origin.py`; Tests zu Cookie-Flags, Timeouts, Rotation, Widerruf, Origin |
+| SR-08 | **umgesetzt (M3, App-Seite)** | Sperre pro E-Mail-Kennung und IP, `429` mit `Retry-After`; Ingress-Rate-Limit folgt (L-Paket) |
+| SR-09 | teilweise (M2) | Security-Header der API; TLS/HSTS am Ingress folgt |
+| SR-10 | DB-Rollen umgesetzt (M2) | `praxis_app` ohne DDL, Audit-Log append-only; Kubernetes-Teil folgt (L2–L4) |
+| SR-11 | **umgesetzt für Auth- und MFA-Ereignisse (M3/M4)** | `services/audit.py`; HMAC statt E-Mail, keine Passwörter (Test `test_audit_log_contains_no_email_or_password`) |
+| SR-12 | teilweise (M2) | Basis-Image per Digest, Lockfiles mit Hashes; SBOM/Signatur folgen mit der Pipeline |

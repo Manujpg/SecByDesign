@@ -55,6 +55,8 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=prod \
+    # Konfiguration nur aus Umgebungsvariablen, nie aus einer .env-Datei im Image.
+    SETTINGS_ENV_FILE="" \
     # Proxy-Header (X-Forwarded-For) nur vom Ingress übernehmen; im Cluster per Env setzen.
     FORWARDED_ALLOW_IPS=127.0.0.1
 

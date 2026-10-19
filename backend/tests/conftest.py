@@ -8,9 +8,16 @@ from __future__ import annotations
 
 import os
 
+# Lokale backend/.env darf Tests nicht beeinflussen.
+os.environ["SETTINGS_ENV_FILE"] = ""
 os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+os.environ["ALLOWED_ORIGINS"] = "https://testserver"
+# Schnelles Argon2 nur für Tests; Produktion nutzt die Werte aus der Architektur.
+os.environ["ARGON2_TIME_COST"] = "1"
+os.environ["ARGON2_MEMORY_COST_KIB"] = "1024"
+os.environ["ARGON2_PARALLELISM"] = "1"
 
 from collections.abc import Iterator
 
@@ -23,6 +30,8 @@ from sqlalchemy.pool import StaticPool
 from app.db import get_db
 from app.main import create_app
 from app.models import Base
+
+ORIGIN = "https://testserver"
 
 
 @pytest.fixture
@@ -66,7 +75,21 @@ def app(engine):
     return application
 
 
+def make_client(app) -> TestClient:
+    # HTTPS-Basis-URL, sonst sendet der Client das Secure-Cookie nicht zurück.
+    # raise_server_exceptions=False: wir wollen die echte 500-Antwort sehen.
+    return TestClient(
+        app, base_url=ORIGIN, headers={"Origin": ORIGIN}, raise_server_exceptions=False
+    )
+
+
 @pytest.fixture
 def client(app) -> TestClient:
-    # raise_server_exceptions=False: wir wollen die echte 500-Antwort sehen.
-    return TestClient(app, raise_server_exceptions=False)
+    return make_client(app)
+
+
+@pytest.fixture
+def settings():
+    from app.core.config import get_settings
+
+    return get_settings()

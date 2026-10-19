@@ -41,11 +41,14 @@ _GENERIC_MESSAGES: dict[int, tuple[str, str]] = {
 class AppError(Exception):
     """Fachlicher Fehler mit client-tauglicher Meldung."""
 
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self, status_code: int, code: str, message: str, headers: dict[str, str] | None = None
+    ) -> None:
         super().__init__(code)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.headers = headers
 
 
 def error_response(
@@ -69,7 +72,7 @@ def error_response(
 
 
 async def _app_error_handler(_: Request, exc: AppError) -> JSONResponse:
-    return error_response(exc.status_code, exc.code, exc.message)
+    return error_response(exc.status_code, exc.code, exc.message, headers=exc.headers)
 
 
 async def _http_error_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
