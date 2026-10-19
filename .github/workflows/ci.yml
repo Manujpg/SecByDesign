@@ -1,0 +1,261 @@
+# =============================================================================
+# PraxisTermin - CI-Pipeline (Paket M8)
+#
+#   secrets ─┐
+#   sbom ────┤
+#   sast ────┼──> quality-gate  (einziger Status-Check für den Branch-Schutz)
+#   sca  ────┤
+#   test ────┘
+#
+# Grundsätze (SR-06, SR-12):
+# - Scanner-Jobs brechen nicht selbst ab, sie liefern nur Berichte. Die Entscheidung
+#   trifft zentral scripts/quality_gate.py (fail-closed: fehlender Bericht = Abbruch).
+# - Minimale Rechte: GITHUB_TOKEN nur lesend; kein Job bekommt mehr als nötig.
+# - Keine Fremd-Actions außer den offiziellen actions/*; alle per Commit-SHA gepinnt.
+#   Scanner laufen als Container-Images, gepinnt per Version UND Digest.
+# - Python-Abhängigkeiten nur aus Lockfiles mit Hash-Prüfung.
+#
+# Container-Build, Image-Scan, Push nach GHCR und Deploy-Test folgen in M9/L7.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14"
+  # Scanner-Images: Version für Lesbarkeit, Digest für Unveränderlichkeit (Stand 19.10.2026)
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  SYFT_IMAGE: anchore/syft:v1.54.1@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa
+  SEMGREP_IMAGE: semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3
+  TRIVY_IMAGE: aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Secret-Scan über die gesamte Git-Historie (Aufgabe 3b)
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Secret-Scan (Gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gesamte Historie, nicht nur der letzte Commit
+          persist-credentials: false
+
+      - name: Gitleaks
+        run: |
+          mkdir -p reports
+          docker run --rm -v "$PWD:/repo" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$GITLEAKS_IMAGE" git /repo \
+              --redact --no-banner --exit-code 0 \
+              --log-opts="--all" \
+              --report-format json --report-path /repo/reports/gitleaks.json
+          docker run --rm -v "$PWD:/repo" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$GITLEAKS_IMAGE" git /repo \
+              --redact --no-banner --exit-code 0 \
+              --log-opts="--all" \
+              --report-format sarif --report-path /repo/reports/gitleaks.sarif
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-secrets
+          path: reports/
+          retention-days: 90
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # SBOM des Quellcodes (Aufgabe 3a); die SBOM des Images folgt in M9
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: SBOM (Syft, CycloneDX)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Syft
+        run: |
+          mkdir -p reports
+          docker run --rm -v "$PWD:/src:ro" -v "$PWD/reports:/out" "$SYFT_IMAGE" \
+            dir:/src/backend \
+            --source-name praxis-backend \
+            --source-version "$(cat VERSION.txt)" \
+            --exclude './.venv/**' --exclude './**/__pycache__/**' \
+            -o cyclonedx-json=/out/sbom-source.cdx.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-sbom
+          path: reports/
+          retention-days: 90
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # SAST (Aufgabe 3b): Semgrep (Regelsätze Python + OWASP Top 10) und Bandit
+  # ---------------------------------------------------------------------------
+  sast:
+    name: SAST (Semgrep, Bandit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Semgrep
+        run: |
+          mkdir -p reports
+          docker run --rm -v "$PWD:/src" -w /src "$SEMGREP_IMAGE" \
+            semgrep scan \
+              --config p/python --config p/owasp-top-ten \
+              --metrics=off --quiet \
+              --json-output=reports/semgrep.json \
+              --sarif-output=reports/semgrep.sarif \
+              backend
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Bandit
+        run: |
+          python -m pip install --require-hashes --no-deps -r backend/requirements-dev.txt
+          bandit -c backend/pyproject.toml -r backend/app backend/migrations \
+            -f json -o reports/bandit.json --exit-zero
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-sast
+          path: reports/
+          retention-days: 90
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # SCA (Aufgabe 3b) - AUFGABE MANUEL, siehe docs/anleitungen/m8-pipeline.md
+  #
+  # Ziel: zwei Berichte im Ordner reports/ erzeugen und als Artefakt
+  # "reports-sca" hochladen:
+  #   reports/trivy-fs.json    Trivy, Schwachstellen in den Lockfiles von backend/
+  #   reports/pip-audit.json   pip-audit gegen backend/requirements.txt
+  #
+  # Solange dieser Job die Berichte nicht liefert, bricht das Quality Gate ab
+  # ("Bericht fehlt: trivy-fs.json"). Das ist Absicht: fail-closed.
+  # ---------------------------------------------------------------------------
+  sca:
+    name: SCA (Trivy, pip-audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Berichtsordner anlegen
+        run: mkdir -p reports
+
+      # TODO Schritt 1: Trivy (siehe Anleitung, Abschnitt "Trivy")
+
+      # TODO Schritt 2: Python einrichten und pip-audit (Abschnitt "pip-audit")
+
+      # TODO Schritt 3: Artefakt "reports-sca" hochladen (Abschnitt "Upload")
+
+  # ---------------------------------------------------------------------------
+  # Build und Tests (Aufgabe 3c, Teil 1): Lint, Formatierung, Unit-Tests
+  # ---------------------------------------------------------------------------
+  test:
+    name: Lint und Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Abhängigkeiten (nur mit Hash-Prüfung)
+        working-directory: backend
+        run: python -m pip install --require-hashes --no-deps -r requirements-dev.txt
+
+      - name: Ruff
+        working-directory: backend
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+
+      - name: pytest
+        working-directory: backend
+        run: |
+          mkdir -p ../reports
+          # "python -m" legt backend/ auf den Importpfad, ohne das Paket zu installieren
+          python -m pytest --junitxml=../reports/pytest.xml
+
+      - name: Quality-Gate-Skript prüfen und testen
+        run: |
+          python -m ruff check scripts
+          python -m ruff format --check scripts
+          python -m pytest -q scripts/tests
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: reports-test
+          path: reports/
+          retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  # Quality Gate (Aufgabe 3d): Abbruch bei Secrets oder CVSS >= 7.0
+  # ---------------------------------------------------------------------------
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: [secrets, sbom, sast, sca, test]
+    if: always() # auch auswerten, wenn ein Job fehlgeschlagen ist
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: reports-*
+          path: reports
+
+      - name: Quality Gate auswerten
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          RUN_LABEL: run-${{ github.run_number }}-${{ github.run_attempt }}
+        run: |
+          python3 scripts/quality_gate.py \
+            --reports reports \
+            --component backend \
+            --evidence-dir evidence-out \
+            --run-label "$RUN_LABEL"
+
+      # Evidence-Paket auch bei Abbruch sichern: gerade fehlgeschlagene Läufe sind Nachweise.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: evidence-backend-run-${{ github.run_number }}-${{ github.run_attempt }}
+          path: evidence-out/
+          retention-days: 90

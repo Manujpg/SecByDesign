@@ -59,8 +59,10 @@ class User(UuidPkMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # TOTP-Secret, AES-GCM-verschlüsselt (Nonce + Ciphertext), nie im Klartext.
+    # TOTP-Secret, AES-GCM-verschlüsselt (Version + Nonce + Ciphertext), nie im Klartext.
     mfa_secret_enc: Mapped[bytes | None] = mapped_column(LargeBinary(128))
+    # Zuletzt akzeptierter TOTP-Zeitschritt: verhindert, dass ein Code zweimal gilt (Replay).
+    mfa_last_used_step: Mapped[int | None] = mapped_column(BigInteger)
     failed_logins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -182,13 +184,17 @@ class UserSession(UuidPkMixin, Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
     mfa_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ip: Mapped[str | None] = mapped_column(String(45))
     user_agent_hash: Mapped[bytes | None] = mapped_column(LargeBinary(32))
 
 
 class RecoveryCode(UuidPkMixin, Base):
+    """Einmal-Codes für den Fall, dass das Smartphone verloren geht (HMAC, nie im Klartext)."""
+
     __tablename__ = "recovery_codes"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -196,6 +202,8 @@ class RecoveryCode(UuidPkMixin, Base):
     )
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (UniqueConstraint("user_id", "code_hash", name="uq_recovery_codes_user_code"),)
 
 
 class AuditLog(Base):
@@ -208,7 +216,10 @@ class AuditLog(Base):
 
     __tablename__ = "audit_log"
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    # BIGINT in PostgreSQL; in SQLite (nur Tests) INTEGER, damit die Rowid hochgezählt wird.
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), Identity(always=True), primary_key=True
+    )
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
@@ -220,4 +231,10 @@ class AuditLog(Base):
     ip: Mapped[str | None] = mapped_column(String(45))
     outcome: Mapped[AuditOutcome] = mapped_column(
         _enum(AuditOutcome, "audit_outcome"), nullable=False
+    )
+
+    __table_args__ = (
+        # Für das Rate-Limiting (Fehlversuche pro IP bzw. E-Mail-Kennung im Zeitfenster).
+        Index("ix_audit_log_action_ip_ts", "action", "ip", "ts"),
+        Index("ix_audit_log_action_target_ts", "action", "target_id", "ts"),
     )
