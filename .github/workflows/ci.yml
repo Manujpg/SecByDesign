@@ -148,15 +148,9 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # SCA (Aufgabe 3b) - AUFGABE MANUEL, siehe docs/anleitungen/m8-pipeline.md
-  #
-  # Ziel: zwei Berichte im Ordner reports/ erzeugen und als Artefakt
-  # "reports-sca" hochladen:
-  #   reports/trivy-fs.json    Trivy, Schwachstellen in den Lockfiles von backend/
-  #   reports/pip-audit.json   pip-audit gegen backend/requirements.txt
-  #
-  # Solange dieser Job die Berichte nicht liefert, bricht das Quality Gate ab
-  # ("Bericht fehlt: trivy-fs.json"). Das ist Absicht: fail-closed.
+  # SCA (Aufgabe 3b): Schwachstellen in den Abhängigkeiten
+  #   reports/trivy-fs.json    Trivy, mit Severity und CVSS (entscheidet im Gate)
+  #   reports/pip-audit.json   pip-audit gegen backend/requirements.txt (zweite Meinung)
   # ---------------------------------------------------------------------------
   sca:
     name: SCA (Trivy, pip-audit)
@@ -170,11 +164,35 @@ jobs:
       - name: Berichtsordner anlegen
         run: mkdir -p reports
 
-      # TODO Schritt 1: Trivy (siehe Anleitung, Abschnitt "Trivy")
+      # Trivy entscheidet über die CVSS-Schwelle (ADR A25). --list-all-pkgs ist Pflicht:
+      # das Gate prüft, ob überhaupt Pakete erkannt wurden (fail-closed).
+      - name: Trivy (Abhängigkeiten)
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -v "$PWD/reports:/out" "$TRIVY_IMAGE" \
+            fs /src/backend \
+              --scanners vuln --list-all-pkgs \
+              --format json --output /out/trivy-fs.json \
+              --exit-code 0 --quiet
 
-      # TODO Schritt 2: Python einrichten und pip-audit (Abschnitt "pip-audit")
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      # TODO Schritt 3: Artefakt "reports-sca" hochladen (Abschnitt "Upload")
+      # Zweite Meinung aus der Python-Advisory-Datenbank (ohne CVSS, daher nur Warnung im Gate).
+      - name: pip-audit
+        run: |
+          python -m pip install --require-hashes --no-deps -r backend/requirements-dev.txt
+          # Exit 1 bei Funden ist erwartet; das Gate entscheidet. Schreibt pip-audit wegen
+          # eines echten Fehlers keinen Bericht, bricht das Gate ab ("Bericht fehlt").
+          pip-audit -r backend/requirements.txt --require-hashes --disable-pip --strict \
+            -f json -o reports/pip-audit.json || echo "pip-audit meldet Funde oder Fehler"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-sca
+          path: reports/
+          retention-days: 90
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Build und Tests (Aufgabe 3c, Teil 1): Lint, Formatierung, Unit-Tests
