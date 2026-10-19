@@ -1,0 +1,499 @@
+{
+  "SchemaVersion": 2,
+  "Trivy": {
+    "Version": "0.76.0"
+  },
+  "ReportID": "01a153a4-93e1-7c99-898b-04cfcf451284",
+  "CreatedAt": "2026-10-19T10:10:57.121827387Z",
+  "ArtifactName": "/src/backend",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "requirements.txt",
+      "Class": "lang-pkgs",
+      "Type": "pip",
+      "Packages": [
+        {
+          "Name": "alembic",
+          "Identifier": {
+            "PURL": "pkg:pypi/alembic@1.20.0",
+            "UID": "a9e22f6c6b519dfc"
+          },
+          "Version": "1.20.0",
+          "Locations": [
+            {
+              "StartLine": 1,
+              "EndLine": 1
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "annotated-doc",
+          "Identifier": {
+            "PURL": "pkg:pypi/annotated-doc@0.0.5",
+            "UID": "833af1aa6ca613a1"
+          },
+          "Version": "0.0.5",
+          "Locations": [
+            {
+              "StartLine": 5,
+              "EndLine": 5
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "annotated-types",
+          "Identifier": {
+            "PURL": "pkg:pypi/annotated-types@0.8.0",
+            "UID": "4781b34ffcc027d"
+          },
+          "Version": "0.8.0",
+          "Locations": [
+            {
+              "StartLine": 9,
+              "EndLine": 9
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "anyio",
+          "Identifier": {
+            "PURL": "pkg:pypi/anyio@4.15.1",
+            "UID": "675d838534b6acdc"
+          },
+          "Version": "4.15.1",
+          "Locations": [
+            {
+              "StartLine": 13,
+              "EndLine": 13
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "argon2-cffi",
+          "Identifier": {
+            "PURL": "pkg:pypi/argon2-cffi@25.1.0",
+            "UID": "2fab3e1e065aea57"
+          },
+          "Version": "25.1.0",
+          "Locations": [
+            {
+              "StartLine": 17,
+              "EndLine": 17
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "argon2-cffi-bindings",
+          "Identifier": {
+            "PURL": "pkg:pypi/argon2-cffi-bindings@26.1.0",
+            "UID": "f418ddab709cad5"
+          },
+          "Version": "26.1.0",
+          "Locations": [
+            {
+              "StartLine": 21,
+              "EndLine": 21
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "cffi",
+          "Identifier": {
+            "PURL": "pkg:pypi/cffi@2.1.1",
+            "UID": "6396f01dc51f0b2d"
+          },
+          "Version": "2.1.1",
+          "Locations": [
+            {
+              "StartLine": 64,
+              "EndLine": 64
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "click",
+          "Identifier": {
+            "PURL": "pkg:pypi/click@8.5.0",
+            "UID": "f67c29dabd01bfc1"
+          },
+          "Version": "8.5.0",
+          "Locations": [
+            {
+              "StartLine": 168,
+              "EndLine": 168
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "cryptography",
+          "Identifier": {
+            "PURL": "pkg:pypi/cryptography@50.0.2",
+            "UID": "597e0f9eaa0822ae"
+          },
+          "Version": "50.0.2",
+          "Locations": [
+            {
+              "StartLine": 172,
+              "EndLine": 172
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "dnspython",
+          "Identifier": {
+            "PURL": "pkg:pypi/dnspython@2.9.0",
+            "UID": "f7068fa753d65d50"
+          },
+          "Version": "2.9.0",
+          "Locations": [
+            {
+              "StartLine": 233,
+              "EndLine": 233
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "email-validator",
+          "Identifier": {
+            "PURL": "pkg:pypi/email-validator@2.3.0",
+            "UID": "c4b0dee1253a28d2"
+          },
+          "Version": "2.3.0",
+          "Locations": [
+            {
+              "StartLine": 237,
+              "EndLine": 237
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "fastapi",
+          "Identifier": {
+            "PURL": "pkg:pypi/fastapi@0.146.0",
+            "UID": "fd881a29a570d142"
+          },
+          "Version": "0.146.0",
+          "Locations": [
+            {
+              "StartLine": 241,
+              "EndLine": 241
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "h11",
+          "Identifier": {
+            "PURL": "pkg:pypi/h11@0.16.0",
+            "UID": "335a7c7750ae929"
+          },
+          "Version": "0.16.0",
+          "Locations": [
+            {
+              "StartLine": 245,
+              "EndLine": 245
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "idna",
+          "Identifier": {
+            "PURL": "pkg:pypi/idna@3.20",
+            "UID": "5f857d0397a57604"
+          },
+          "Version": "3.20",
+          "Locations": [
+            {
+              "StartLine": 249,
+              "EndLine": 249
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "mako",
+          "Identifier": {
+            "PURL": "pkg:pypi/mako@1.4.3",
+            "UID": "38b9ebf00afb56fe"
+          },
+          "Version": "1.4.3",
+          "Locations": [
+            {
+              "StartLine": 255,
+              "EndLine": 255
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "markupsafe",
+          "Identifier": {
+            "PURL": "pkg:pypi/markupsafe@3.0.4",
+            "UID": "4002a5ac75c49309"
+          },
+          "Version": "3.0.4",
+          "Locations": [
+            {
+              "StartLine": 259,
+              "EndLine": 259
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "opentelemetry-api",
+          "Identifier": {
+            "PURL": "pkg:pypi/opentelemetry-api@1.45.1",
+            "UID": "8752f68ef4a980bb"
+          },
+          "Version": "1.45.1",
+          "Locations": [
+            {
+              "StartLine": 412,
+              "EndLine": 412
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "psycopg",
+          "Identifier": {
+            "PURL": "pkg:pypi/psycopg@3.3.6",
+            "UID": "9af1aeeecc135d37"
+          },
+          "Version": "3.3.6",
+          "Locations": [
+            {
+              "StartLine": 416,
+              "EndLine": 416
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "psycopg-binary",
+          "Identifier": {
+            "PURL": "pkg:pypi/psycopg-binary@3.3.6",
+            "UID": "1a10a768a42e6608"
+          },
+          "Version": "3.3.6",
+          "Locations": [
+            {
+              "StartLine": 420,
+              "EndLine": 420
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "pycparser",
+          "Identifier": {
+            "PURL": "pkg:pypi/pycparser@3.11",
+            "UID": "7e03e107c2c0e41"
+          },
+          "Version": "3.11",
+          "Locations": [
+            {
+              "StartLine": 488,
+              "EndLine": 488
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "pydantic",
+          "Identifier": {
+            "PURL": "pkg:pypi/pydantic@2.14.1",
+            "UID": "a59af9b73b0a493f"
+          },
+          "Version": "2.14.1",
+          "Locations": [
+            {
+              "StartLine": 492,
+              "EndLine": 492
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "pydantic-core",
+          "Identifier": {
+            "PURL": "pkg:pypi/pydantic-core@2.50.1",
+            "UID": "36733b8977c60c71"
+          },
+          "Version": "2.50.1",
+          "Locations": [
+            {
+              "StartLine": 499,
+              "EndLine": 499
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "pydantic-settings",
+          "Identifier": {
+            "PURL": "pkg:pypi/pydantic-settings@2.16.0",
+            "UID": "57e3fcd7bbe44294"
+          },
+          "Version": "2.16.0",
+          "Locations": [
+            {
+              "StartLine": 638,
+              "EndLine": 638
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "pyotp",
+          "Identifier": {
+            "PURL": "pkg:pypi/pyotp@2.10.0",
+            "UID": "353ad60cdac299e1"
+          },
+          "Version": "2.10.0",
+          "Locations": [
+            {
+              "StartLine": 642,
+              "EndLine": 642
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "python-dotenv",
+          "Identifier": {
+            "PURL": "pkg:pypi/python-dotenv@1.2.4",
+            "UID": "e092d3235078e326"
+          },
+          "Version": "1.2.4",
+          "Locations": [
+            {
+              "StartLine": 646,
+              "EndLine": 646
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "sqlalchemy",
+          "Identifier": {
+            "PURL": "pkg:pypi/sqlalchemy@2.1.5",
+            "UID": "66cb8b71b09ebc2e"
+          },
+          "Version": "2.1.5",
+          "Locations": [
+            {
+              "StartLine": 650,
+              "EndLine": 650
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "starlette",
+          "Identifier": {
+            "PURL": "pkg:pypi/starlette@1.9.0",
+            "UID": "54b2a5efd667b69f"
+          },
+          "Version": "1.9.0",
+          "Locations": [
+            {
+              "StartLine": 726,
+              "EndLine": 726
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "typing-extensions",
+          "Identifier": {
+            "PURL": "pkg:pypi/typing-extensions@4.16.0",
+            "UID": "952fd48a81ec77c5"
+          },
+          "Version": "4.16.0",
+          "Locations": [
+            {
+              "StartLine": 730,
+              "EndLine": 730
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "typing-inspection",
+          "Identifier": {
+            "PURL": "pkg:pypi/typing-inspection@0.4.4",
+            "UID": "1caede838b236b7"
+          },
+          "Version": "0.4.4",
+          "Locations": [
+            {
+              "StartLine": 743,
+              "EndLine": 743
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "tzdata",
+          "Identifier": {
+            "PURL": "pkg:pypi/tzdata@2026.5",
+            "UID": "db5488a1d6316976"
+          },
+          "Version": "2026.5",
+          "Locations": [
+            {
+              "StartLine": 750,
+              "EndLine": 750
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "uvicorn",
+          "Identifier": {
+            "PURL": "pkg:pypi/uvicorn@0.54.0",
+            "UID": "1881a943d021cfb1"
+          },
+          "Version": "0.54.0",
+          "Locations": [
+            {
+              "StartLine": 754,
+              "EndLine": 754
+            }
+          ],
+          "AnalyzedBy": "pip"
+        },
+        {
+          "Name": "zxcvbn",
+          "Identifier": {
+            "PURL": "pkg:pypi/zxcvbn@4.5.0",
+            "UID": "cfa03574b238a27b"
+          },
+          "Version": "4.5.0",
+          "Locations": [
+            {
+              "StartLine": 758,
+              "EndLine": 758
+            }
+          ],
+          "AnalyzedBy": "pip"
+        }
+      ]
+    }
+  ]
+}
