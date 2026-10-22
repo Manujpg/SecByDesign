@@ -42,3 +42,6 @@ Thumbs.db
 desktop.ini
 
 # evidence/ wird bewusst versioniert (Nachweise aller Pipeline-Runs)
+
+# --- Lokale Caches (z. B. heruntergeladene install.yaml) ---
+.cache/

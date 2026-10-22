@@ -1,0 +1,116 @@
+# Routing am Gateway (Paket L1, SR-08, SR-09)
+#
+#   http  *            -> 301 auf https
+#   https /            -> praxis-frontend:8080
+#   https /api         -> praxis-backend:8000
+#   https /api/v1/auth -> praxis-backend:8000 mit Rate-Limit
+#
+# Gleicher Host für SPA und API: Same-Origin, keine CORS-Freigaben nötig.
+# Gateway API wählt den längsten passenden Pfadpräfix, /api/v1/auth geht also immer über
+# die rate-limitierte Route. Die Services praxis-frontend/praxis-backend entstehen in
+# Paket L3; bis dahin antwortet das Gateway auf diesen Routen mit 500, und auch das
+# Rate-Limit greift erst, sobald das Backend existiert.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: praxis-http-redirect
+spec:
+  parentRefs:
+    - name: praxis-gateway
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: praxis-frontend
+spec:
+  parentRefs:
+    - name: praxis-gateway
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000; includeSubDomains
+      backendRefs:
+        - name: praxis-frontend
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: praxis-backend
+spec:
+  parentRefs:
+    - name: praxis-gateway
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000; includeSubDomains
+      backendRefs:
+        - name: praxis-backend
+          port: 8000
+---
+# Eigene Route nur für die Anmelde-Endpunkte, damit das Rate-Limit genau hier greift.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: praxis-auth
+spec:
+  parentRefs:
+    - name: praxis-gateway
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1/auth
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: max-age=31536000; includeSubDomains
+      backendRefs:
+        - name: praxis-backend
+          port: 8000
+---
+# SR-08: lokales Rate-Limit im Envoy (ohne Redis). Envoy Gateway unterstützt lokal keine
+# Zählung pro Client-IP ("Distinct"); das Limit gilt daher für alle Anfragen auf
+# /api/v1/auth zusammen und bremst Massen-Brute-Force. Die Zählung pro Konto und pro IP
+# mit Sperre übernimmt das Backend. Überschreitung: 429 Too Many Requests.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: praxis-auth-rate-limit
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: praxis-auth
+  rateLimit:
+    local:
+      rules:
+        - limit:
+            requests: 60
+            unit: Minute

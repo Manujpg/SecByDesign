@@ -31,8 +31,9 @@ Container-Registry) auf ein lokales Kubernetes-Cluster (kind).
 ├── frontend/                 React 19 + TypeScript + Vite + Tailwind + shadcn/ui
 ├── backend/                  FastAPI (Python 3.14), SQLAlchemy, Alembic
 ├── infrastructure/
-│   ├── kind/                 kind-Cluster-Konfiguration (Port-Mapping 80/443)
-│   └── k8s/                  Kustomize: base/ + overlays/{local,ci}
+│   ├── kind/                 kind-Cluster-Konfiguration (Port-Mapping 127.0.0.1:80/443)
+│   ├── gateway/              Envoy Gateway: GatewayClass + Proxy-Konfiguration (NodePort für kind)
+│   └── k8s/                  Kustomize: base/ (Namespace, SAs, Quota, Gateway, Routen) + overlays/{local,ci}
 ├── .github/workflows/        CI/CD-Pipeline (GitHub Actions)
 ├── scripts/                  Hilfsskripte (Secrets erzeugen, Quality Gate, Smoke-Test)
 ├── evidence/
@@ -64,9 +65,13 @@ Windows unsignierte Programme wie `make.exe` und `kind.exe`. `make up` läuft de
 in **WSL2 (Ubuntu)**, das Docker Desktop ohnehin nutzt. Einmalige Einrichtung in der Ubuntu-Shell:
 
 ```bash
-sudo apt update && sudo apt install -y make
+sudo apt update && sudo apt install -y make curl openssl
 curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64 && chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
+# falls "kubectl" in WSL fehlt (passend zur Cluster-Version 1.35):
+curl -LO https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl && chmod +x ./kubectl && sudo mv ./kubectl /usr/local/bin/kubectl
 ```
+
+Die Ports 80 und 443 auf `127.0.0.1` müssen frei sein (kein lokaler Webserver, IIS o. Ä.).
 
 In Docker Desktop unter Settings → Resources → WSL Integration muss „Ubuntu“ aktiviert sein.
 Das Repository erreicht man in WSL unter `/mnt/c/Users/<name>/Desktop/SecByDesign`.
@@ -77,8 +82,8 @@ Das Repository erreicht man in WSL unter `/mnt/c/Users/<name>/Desktop/SecByDesig
 make up
 ```
 
-führt aus: kind-Cluster erstellen → ingress-nginx installieren → Namespace und Secrets
-erzeugen → Images laden (Pull per Digest aus GHCR oder lokaler Build + `kind load`) →
+führt aus: kind-Cluster erstellen → Envoy Gateway installieren (Hash-geprüft) → Namespace,
+TLS-Zertifikat und Secrets erzeugen → Images laden (Pull per Digest aus GHCR oder lokaler Build + `kind load`) →
 Manifeste anwenden → auf Health warten → `Ready` ausgeben.
 
 Danach ist die Anwendung unter **https://localhost** erreichbar (selbstsigniertes Zertifikat,
@@ -89,8 +94,10 @@ und MFA-Einrichtung.
 Weitere Ziele:
 
 ```bash
+make infra     # nur Plattform: Cluster, Gateway, Namespace, TLS, Least-Privilege-Prüfung
+make check-k8s # Least Privilege im Namespace prüfen (PSA, ServiceAccounts, RBAC, Quota)
 make down      # Cluster löschen
-make smoke     # Health- und Header-Checks über den Ingress
+make smoke     # Health- und Header-Checks über das Gateway
 make build     # beide Images lokal bauen
 make scan      # SBOM, SAST, SCA, Secret-Scan lokal ausführen (Docker-basiert)
 make bundle    # Abgabe-Zip erzeugen (Images als .tar, digest.txt, Reports, Repo-Zip)

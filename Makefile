@@ -1,15 +1,16 @@
 # =============================================================================
 # PraxisTermin – Makefile (Blaupause für reproduzierbares Deployment)
 #
-#   make up      Cluster hochfahren, Namespace anlegen, Ingress ausrollen,
+#   make up      Cluster hochfahren, Gateway installieren, Namespace anlegen,
 #                Images laden, Manifeste anwenden, auf Health warten, "Ready"
+#   make infra   Nur Plattform (L1/L2): Cluster, Gateway, Namespace, TLS, Prüfungen
 #   make down    Cluster löschen
-#   make smoke   Health-/Header-Checks über den Ingress
+#   make smoke   Health-/Header-Checks über das Gateway
 #   make build   Images lokal bauen
 #   make scan    SBOM, SAST, SCA, Secret-Scan lokal (Docker-basiert)
 #   make bundle  Abgabe-Zip erzeugen
 #
-# Ausführung unter Windows aus der Git Bash. Entwurf Woche 1 – Ziele, die noch
+# Ausführung unter Linux/macOS bzw. Windows in WSL2 (ADR A14). Entwurf Woche 1 – Ziele, die noch
 # auf fehlende Dateien verweisen, sind mit TODO markiert (Paket L6 im Projektplan).
 # =============================================================================
 
@@ -32,7 +33,14 @@ BACKEND_DIGEST  ?=
 FRONTEND_DIGEST ?=
 KIND_CONFIG    ?= infrastructure/kind/cluster.yaml
 OVERLAY        ?= infrastructure/k8s/overlays/local
-INGRESS_NGINX  ?= https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.1/deploy/static/provider/kind/deploy.yaml
+# Envoy Gateway (Gateway API) als Eintrittspunkt, Installation ohne Helm (ADR A26).
+GATEWAY_VERSION ?= v1.9.2
+GATEWAY_INSTALL ?= https://github.com/envoyproxy/gateway/releases/download/$(GATEWAY_VERSION)/install.yaml
+# SHA-256 der install.yaml (v1.9.2, ermittelt 22.10.2026). "make gateway" bricht bei Abweichung ab
+# (Supply Chain). Bei einem Versionswechsel neuen Hash eintragen; leer wird er nur ausgegeben.
+GATEWAY_INSTALL_SHA256 ?= 0412a72907e57ff9b73c56a7bf6df5190bf0f6e4f8bb4bba34e38630bbab5778
+GATEWAY_NAME   ?= praxis-gateway
+CACHE_DIR      ?= .cache
 WAIT_TIMEOUT   ?= 300s
 BUNDLE_DIR     ?= submission
 
@@ -43,15 +51,20 @@ help: ## Zeigt diese Hilfe
 
 # ----- Hauptziel --------------------------------------------------------------
 .PHONY: up
-up: check-tools cluster ingress namespace secrets images deploy wait smoke ## Kompletter Aufbau bis "Ready"
+up: check-tools cluster gateway namespace tls secrets images deploy wait smoke ## Kompletter Aufbau bis "Ready"
 	@echo ""
 	@echo "Ready"
 	@echo "  App:   https://localhost  (selbstsigniertes Zertifikat einmalig akzeptieren)"
 	@echo "  Admin: Initialpasswort siehe Ausgabe von 'make secrets' bzw. Secret admin-bootstrap"
 
+.PHONY: infra
+infra: check-tools cluster gateway namespace tls deploy gateway-wait check-k8s ## Nur Plattform (L1/L2) aufbauen und prüfen
+	@echo ""
+	@echo "Plattform bereit: https://localhost läuft über das Gateway (ohne Workloads: 500)"
+
 .PHONY: check-tools
-check-tools: ## Prüft, ob docker, kind, kubectl vorhanden sind
-	@for t in docker kind kubectl; do \
+check-tools: ## Prüft, ob docker, kind, kubectl, curl, openssl vorhanden sind
+	@for t in docker kind kubectl curl openssl; do \
 	  command -v $$t >/dev/null 2>&1 || { echo "Fehlt: $$t (siehe README Setup-Guide)"; exit 1; }; \
 	done
 	@docker info >/dev/null 2>&1 || { echo "Docker läuft nicht"; exit 1; }
@@ -65,11 +78,39 @@ cluster: ## kind-Cluster erstellen (idempotent)
 	fi
 	@kubectl cluster-info --context "kind-$(CLUSTER)" >/dev/null
 
-.PHONY: ingress
-ingress: ## ingress-nginx installieren und auf Bereitschaft warten
-	kubectl apply -f "$(INGRESS_NGINX)"
-	kubectl -n ingress-nginx wait --for=condition=Ready pod \
-	  -l app.kubernetes.io/component=controller --timeout=$(WAIT_TIMEOUT)
+.PHONY: gateway
+gateway: ## Envoy Gateway installieren (Hash-geprüft), GatewayClass/EnvoyProxy anwenden
+	@mkdir -p "$(CACHE_DIR)"
+	@f="$(CACHE_DIR)/envoy-gateway-$(GATEWAY_VERSION).yaml"; \
+	if [ ! -s "$$f" ]; then \
+	  curl -fsSL --proto '=https' --tlsv1.2 -o "$$f.tmp" "$(GATEWAY_INSTALL)" && mv "$$f.tmp" "$$f"; \
+	fi; \
+	actual="$$(sha256sum "$$f" | cut -d' ' -f1)"; \
+	if [ -z "$(GATEWAY_INSTALL_SHA256)" ]; then \
+	  echo "WARNUNG: GATEWAY_INSTALL_SHA256 nicht gesetzt, SHA-256 von install.yaml $(GATEWAY_VERSION): $$actual"; \
+	elif [ "$$actual" != "$(GATEWAY_INSTALL_SHA256)" ]; then \
+	  echo "FEHLER: SHA-256 von $$f weicht ab ($$actual)"; rm -f "$$f"; exit 1; \
+	fi; \
+	kubectl apply --server-side -f "$$f" >/dev/null
+	kubectl -n envoy-gateway-system wait --for=condition=Available deployment/envoy-gateway --timeout=$(WAIT_TIMEOUT)
+	kubectl apply -k infrastructure/gateway
+
+.PHONY: tls
+tls: ## Selbstsigniertes TLS-Zertifikat als Secret tls-cert erzeugen (nie im Repo)
+	./scripts/generate-tls.sh "$(NAMESPACE)"
+
+.PHONY: gateway-wait
+gateway-wait: ## Warten, bis der Envoy-Proxy des Gateways läuft
+	@sel="gateway.envoyproxy.io/owning-gateway-name=$(GATEWAY_NAME),gateway.envoyproxy.io/owning-gateway-namespace=$(NAMESPACE)"; \
+	for i in $$(seq 1 60); do \
+	  [ -n "$$(kubectl -n envoy-gateway-system get pods -l "$$sel" -o name 2>/dev/null)" ] && break; \
+	  sleep 2; \
+	done; \
+	kubectl -n envoy-gateway-system wait --for=condition=Ready pod -l "$$sel" --timeout=$(WAIT_TIMEOUT)
+
+.PHONY: check-k8s
+check-k8s: ## Least Privilege im Namespace prüfen (PSA, ServiceAccounts, RBAC, Quota)
+	./scripts/check-k8s.sh "$(NAMESPACE)"
 
 .PHONY: namespace
 namespace: ## Namespace anlegen
@@ -104,13 +145,13 @@ deploy: ## Manifeste anwenden (Kustomize-Overlay)
 	kubectl apply -k "$(OVERLAY)"
 
 .PHONY: wait
-wait: ## Warten, bis alle Workloads bereit sind
+wait: gateway-wait ## Warten, bis Gateway und alle Workloads bereit sind
 	kubectl -n "$(NAMESPACE)" rollout status statefulset/praxis-postgres --timeout=$(WAIT_TIMEOUT)
 	kubectl -n "$(NAMESPACE)" rollout status deployment/praxis-backend  --timeout=$(WAIT_TIMEOUT)
 	kubectl -n "$(NAMESPACE)" rollout status deployment/praxis-frontend --timeout=$(WAIT_TIMEOUT)
 
 .PHONY: smoke
-smoke: ## Smoke-Test über den Ingress  TODO L6: scripts/smoke.sh
+smoke: ## Smoke-Test über das Gateway  TODO L6: scripts/smoke.sh
 	./scripts/smoke.sh https://localhost
 
 .PHONY: down

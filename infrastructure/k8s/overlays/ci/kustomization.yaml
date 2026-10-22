@@ -1,0 +1,6 @@
+# Overlay für den Deploy-Test im GitHub-Runner (Paket L7).
+# Hier werden später die Images per Digest aus GHCR gesetzt (images: ... digest: ...).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base

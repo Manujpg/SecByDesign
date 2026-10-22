@@ -1,0 +1,18 @@
+# Namespace der Anwendung (Paket L2, SR-10 a)
+#
+# Pod Security Admission auf "restricted": Der API-Server lehnt Pods ab, die als root
+# laufen, Privilege Escalation erlauben, Capabilities behalten, kein seccomp-Profil
+# setzen oder hostPath/hostNetwork nutzen. Die Härtung aus L3 wird damit erzwungen statt
+# nur dokumentiert. Version gepinnt auf die Cluster-Version (kind/cluster.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: praxis-termine
+  labels:
+    app.kubernetes.io/part-of: praxis-termine
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.35
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.35
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.35

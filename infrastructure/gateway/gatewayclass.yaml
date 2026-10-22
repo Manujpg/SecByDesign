@@ -1,0 +1,13 @@
+# GatewayClass für den Envoy-Gateway-Controller (Paket L1, ADR A26).
+# Verweist auf die kind-spezifische Proxy-Konfiguration (NodePort statt LoadBalancer).
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: praxis-envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: praxis-proxy
+    namespace: envoy-gateway-system

@@ -1,0 +1,24 @@
+# Ressourcen-Obergrenzen des Namespaces (Paket L2, SR-10 a, STRIDE: Denial of Service)
+#
+# Geplanter Bedarf (L3): Frontend, Backend (+ Init-Container migrate), Postgres mit je
+# einem Replica, plus Spielraum für ein Rolling Update. Ein kompromittierter oder
+# fehlerhafter Workload kann den Node damit nicht erschöpfen.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: praxis-quota
+spec:
+  hard:
+    pods: "10"
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
+    persistentvolumeclaims: "2"
+    requests.storage: 5Gi
+    services: "5"
+    # Kein Workload darf sich am Gateway vorbei direkt nach außen öffnen.
+    services.nodeports: "0"
+    services.loadbalancers: "0"
+    secrets: "15"
+    configmaps: "10"

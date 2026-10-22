@@ -1,0 +1,51 @@
+# Eintrittspunkt in den Cluster (Paket L1, ADR A26, SR-09)
+#
+# Ein Gateway mit zwei Listenern:
+#   http  (80)  nimmt nur den Redirect auf HTTPS an (HTTPRoute praxis-http-redirect)
+#   https (443) terminiert TLS mit dem zur Deploy-Zeit erzeugten Secret tls-cert
+#               (scripts/generate-tls.sh, nie im Repository)
+# Routen dürfen nur aus dem eigenen Namespace angebunden werden.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: praxis-gateway
+spec:
+  gatewayClassName: praxis-envoy
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: tls-cert
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# Verhalten des Proxys gegenüber dem Browser
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: praxis-client
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: praxis-gateway
+  # Envoy ist der erste Hop: vom Client mitgeschickte X-Forwarded-For-Werte werden nicht
+  # vertraut, Envoy hängt die echte Quell-IP an. Das Backend (uvicorn --proxy-headers)
+  # vertraut nur Envoy (FORWARDED_ALLOW_IPS = Pod-Netz, Zugriff per NetworkPolicy auf
+  # envoy-gateway-system beschränkt) und erhält so die Client-IP für SR-08.
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: 0
+  tls:
+    minVersion: "1.2"
