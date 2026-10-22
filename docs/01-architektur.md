@@ -158,7 +158,10 @@ Das Frontend spricht **nie** direkt mit dem Backend-Pod, sondern der Browser ruf
 (`numTrustedHops: 0`) und hängt die echte Quell-IP an. Das Backend (uvicorn `--proxy-headers`)
 vertraut nur dem Pod-Netz `10.244.0.0/16` (`FORWARDED_ALLOW_IPS`); da die NetworkPolicy Zugriffe
 auf das Backend nur aus `envoy-gateway-system` zulässt, kann nur der Proxy diesen Header setzen.
-Ohne diese Kette zählte das IP-Limit aus SR-08 alle Anfragen als eine IP.
+Ohne diese Kette zählte das IP-Limit aus SR-08 alle Anfragen als eine IP. Getestet (22.10.2026): ein
+gefälschtes `X-Forwarded-For: 6.6.6.6` kommt als `6.6.6.6,<echte IP>` an, uvicorn nimmt den rechten,
+nicht vertrauenswürdigen Eintrag. Einschränkung lokal: kind reicht Port 80/443 über die Docker-Bridge
+weiter, alle Anfragen vom eigenen Rechner erscheinen daher als `172.18.0.1`.
 
 **Ressourcen:** Requests/Limits für CPU und RAM auf allen Containern, Liveness/Readiness-Probes
 (`/healthz`, `/readyz`), PodDisruptionBudget nicht nötig (Einzelreplica, lokales Cluster).

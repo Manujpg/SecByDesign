@@ -36,9 +36,9 @@ OVERLAY        ?= infrastructure/k8s/overlays/local
 # Envoy Gateway (Gateway API) als Eintrittspunkt, Installation ohne Helm (ADR A26).
 GATEWAY_VERSION ?= v1.9.2
 GATEWAY_INSTALL ?= https://github.com/envoyproxy/gateway/releases/download/$(GATEWAY_VERSION)/install.yaml
-# SHA-256 der install.yaml. Gesetzt bricht "make gateway" bei Abweichung ab (Supply Chain);
-# leer wird der Hash nur ausgegeben und sollte hier eingetragen werden.
-GATEWAY_INSTALL_SHA256 ?=
+# SHA-256 der install.yaml (v1.9.2, ermittelt 22.10.2026). "make gateway" bricht bei Abweichung ab
+# (Supply Chain). Bei einem Versionswechsel neuen Hash eintragen; leer wird er nur ausgegeben.
+GATEWAY_INSTALL_SHA256 ?= 0412a72907e57ff9b73c56a7bf6df5190bf0f6e4f8bb4bba34e38630bbab5778
 GATEWAY_NAME   ?= praxis-gateway
 CACHE_DIR      ?= .cache
 WAIT_TIMEOUT   ?= 300s

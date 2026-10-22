@@ -8,7 +8,8 @@
 # Gleicher Host für SPA und API: Same-Origin, keine CORS-Freigaben nötig.
 # Gateway API wählt den längsten passenden Pfadpräfix, /api/v1/auth geht also immer über
 # die rate-limitierte Route. Die Services praxis-frontend/praxis-backend entstehen in
-# Paket L3; bis dahin antwortet das Gateway auf diesen Routen mit 500.
+# Paket L3; bis dahin antwortet das Gateway auf diesen Routen mit 500, und auch das
+# Rate-Limit greift erst, sobald das Backend existiert.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -97,7 +98,7 @@ spec:
 # SR-08: lokales Rate-Limit im Envoy (ohne Redis). Envoy Gateway unterstützt lokal keine
 # Zählung pro Client-IP ("Distinct"); das Limit gilt daher für alle Anfragen auf
 # /api/v1/auth zusammen und bremst Massen-Brute-Force. Die Zählung pro Konto und pro IP
-# mit Sperre übernimmt das Backend. Überschreitung: 429 mit x-envoy-ratelimited: true.
+# mit Sperre übernimmt das Backend. Überschreitung: 429 Too Many Requests.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
