@@ -1,0 +1,162 @@
+# REST-API (FastAPI) mit Init-Container für die Migrationen (Paket L3, SR-06, SR-10 c)
+#
+#   initContainer migrate  alembic upgrade head als praxis_migrate (DDL), danach beendet
+#   container api          uvicorn als praxis_app (nur DML), Port 8000
+#
+# Beide laufen mit demselben Image als UID 10001 (backend/Dockerfile). Die Secrets sind
+# auf die Container verteilt: das Migrationspasswort sieht nur migrate, App-Passwort und
+# Admin-Initialpasswort nur die API. Das Image steht hier als logischer Name
+# "praxis-backend"; das Makefile setzt Registry und Tag bzw. Digest (make deploy).
+apiVersion: v1
+kind: Service
+metadata:
+  name: praxis-backend
+  labels:
+    app.kubernetes.io/name: praxis-backend
+    app.kubernetes.io/component: backend
+spec:
+  selector:
+    app.kubernetes.io/name: praxis-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: praxis-backend
+  labels:
+    app.kubernetes.io/name: praxis-backend
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: praxis-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: praxis-backend
+        app.kubernetes.io/component: backend
+    spec:
+      serviceAccountName: backend-sa
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: praxis-backend
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+          env:
+            - name: DB_USER
+              value: praxis_migrate
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MIGRATE_PASSWORD
+            # Nur, weil config.py den Schlüssel bei APP_ENV=prod unabhängig vom Kommando
+            # verlangt; die Migrationen selbst nutzen ihn nicht (Rückfrage an M2 offen).
+            - name: APP_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-session-key
+                  key: APP_SECRET_KEY
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: api
+          image: praxis-backend
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: app-config
+          env:
+            - name: DB_USER
+              value: praxis_app
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: APP_PASSWORD
+            - name: APP_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-session-key
+                  key: APP_SECRET_KEY
+            - name: ADMIN_BOOTSTRAP_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: admin-bootstrap
+                  key: ADMIN_BOOTSTRAP_EMAIL
+            - name: ADMIN_BOOTSTRAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: admin-bootstrap
+                  key: ADMIN_BOOTSTRAP_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            # Argon2id braucht 64 MiB je gleichzeitiger Passwortprüfung (SR-01).
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # /readyz prüft die Datenbankverbindung: ohne DB keine Requests an diesen Pod.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

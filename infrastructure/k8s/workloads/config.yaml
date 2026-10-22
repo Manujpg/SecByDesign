@@ -1,0 +1,30 @@
+# Nicht geheime Konfiguration des Backends (Paket L5, SR-06)
+#
+# Variablen siehe backend/app/core/config.py und backend/.env.example. Geheime Werte
+# (DB_PASSWORD, APP_SECRET_KEY, ADMIN_BOOTSTRAP_*) stehen nicht hier, sondern in den zur
+# Deploy-Zeit erzeugten Secrets (scripts/generate-secrets.sh). DB_USER setzt jeder
+# Container selbst: praxis_migrate im Init-Container, praxis_app in der API.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  labels:
+    app.kubernetes.io/component: backend
+data:
+  # prod: Pflicht-Secrets werden beim Start geprüft, keine OpenAPI/Swagger-UI.
+  APP_ENV: prod
+  LOG_LEVEL: INFO
+  DB_HOST: praxis-postgres
+  DB_PORT: "5432"
+  DB_NAME: praxistermin
+  DB_APP_ROLE: praxis_app
+  # Kein TLS zwischen Backend und PostgreSQL: Verkehr bleibt im Pod-Netz des Single-Node-
+  # Clusters und ist per NetworkPolicy auf Backend -> Postgres beschränkt (L4). Bewusst
+  # "disable" statt "prefer", damit die Konfiguration nichts vortäuscht.
+  DB_SSLMODE: disable
+  # CSRF: zustandsändernde Requests nur vom eigenen Origin (Gateway, Same-Origin).
+  ALLOWED_ORIGINS: https://localhost
+  # uvicorn --proxy-headers übernimmt X-Forwarded-For nur aus dem Pod-Netz (Envoy-Proxy,
+  # kind/cluster.yaml podSubnet). Ohne diese Angabe zählte das IP-Limit (SR-08) alle
+  # Anfragen als eine IP.
+  FORWARDED_ALLOW_IPS: 10.244.0.0/16

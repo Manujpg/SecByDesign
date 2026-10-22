@@ -1,0 +1,151 @@
+# PostgreSQL als StatefulSet mit PVC (Paket L3, SR-10 c)
+#
+# Einzelreplica, Daten auf einem 1-Gi-Volume (kind: local-path). Läuft von Anfang an als
+# Nutzer postgres (UID 70 im Alpine-Image), nie als root. Beim ersten Start legt
+# initdb/01-roles.sh die Datenbank und die Rollen praxis_migrate/praxis_app an.
+# Nur dieser Pod erhält das Superuser-Passwort. Kein Weg nach außen: Service ohne
+# ClusterIP, keine Route am Gateway, Zugriff nur vom Backend (NetworkPolicy, L4).
+apiVersion: v1
+kind: Service
+metadata:
+  name: praxis-postgres
+  labels:
+    app.kubernetes.io/name: praxis-postgres
+    app.kubernetes.io/component: database
+spec:
+  # Headless: DNS-Name praxis-postgres zeigt direkt auf den Pod des StatefulSets.
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: praxis-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: praxis-postgres
+  labels:
+    app.kubernetes.io/name: praxis-postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: praxis-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: praxis-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: praxis-postgres
+        app.kubernetes.io/component: database
+    spec:
+      serviceAccountName: postgres-sa
+      automountServiceAccountToken: false
+      # Keine Service-Variablen anderer Dienste in die Umgebung (Informationsminimierung).
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: postgres
+          # postgres:16-alpine (PostgreSQL 16.15, Stand 22.10.2026), per Digest gepinnt;
+          # gleiche Hauptversion wie die Entwicklungs-DB (backend/dev/compose.yaml).
+          image: postgres:16-alpine@sha256:deb28ee471183cb0c303113dac9b2433c51eeeeb678def7af9a9ec5820367815
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_DB
+              value: postgres
+            # Unterverzeichnis: initdb verlangt ein leeres Verzeichnis mit Rechten 0700.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: POSTGRES_PASSWORD
+            - name: PRAXIS_DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_NAME
+            - name: PRAXIS_MIGRATE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: MIGRATE_PASSWORD
+            - name: PRAXIS_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: APP_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Über TCP prüfen: Während der Erstinitialisierung lauscht PostgreSQL nur auf dem
+          # Unix-Socket, der Pod wird also erst nach Anlage der Rollen bereit.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            # Schreibpfade bei schreibgeschütztem Root-Dateisystem: Socket/Lock-Datei, temporäre Dateien
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: initdb
+          configMap:
+            name: praxis-postgres-initdb
+            defaultMode: 0555
+        - name: run
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: praxis-postgres
+          app.kubernetes.io/component: database
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

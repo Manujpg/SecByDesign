@@ -1,6 +1,9 @@
 # Overlay für make up auf der Entwickler-Workstation.
-# Images werden lokal gebaut bzw. per Digest gezogen und mit "kind load" geladen (L3/L6).
+# Images werden lokal gebaut bzw. per Digest gezogen und mit "kind load" geladen. Registry
+# und Tag setzt "make deploy" für die logischen Namen praxis-backend/praxis-frontend
+# (siehe ../../workloads); direkt mit kubectl apply -k angewendet fehlen sie.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+  - ../../workloads

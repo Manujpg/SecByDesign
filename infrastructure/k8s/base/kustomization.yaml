@@ -1,7 +1,8 @@
-# Basis-Manifeste der Anwendung (gemeinsam für die Overlays local und ci)
+# Plattform-Manifeste (gemeinsam für die Overlays local und ci)
 #
-# Stand: L1 (Gateway, Routen) und L2 (Namespace, Identitäten, Kontingente).
-# Es folgen L3 (Workloads, Services), L4 (NetworkPolicies) und L5 (ConfigMap).
+# Stand: L1 (Gateway, Routen) und L2 (Namespace, Identitäten, Kontingente); "make infra"
+# wendet nur diese an. ConfigMap, Workloads und Services (L3/L5) liegen in ../workloads.
+# Es folgen L4 (NetworkPolicies).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: praxis-termine
