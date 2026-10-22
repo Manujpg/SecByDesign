@@ -1,0 +1,20 @@
+# Basis-Manifeste der Anwendung (gemeinsam für die Overlays local und ci)
+#
+# Stand: L1 (Gateway, Routen) und L2 (Namespace, Identitäten, Kontingente).
+# Es folgen L3 (Workloads, Services), L4 (NetworkPolicies) und L5 (ConfigMap).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: praxis-termine
+labels:
+  # Nicht in Selektoren, damit spätere Änderungen keine Deployments neu anlegen.
+  - pairs:
+      app.kubernetes.io/part-of: praxis-termine
+    includeSelectors: false
+    includeTemplates: true
+resources:
+  - namespace.yaml
+  - serviceaccounts.yaml
+  - resource-quota.yaml
+  - limit-range.yaml
+  - gateway.yaml
+  - routes.yaml

@@ -74,7 +74,7 @@ Selbstregistrierung erzeugt immer die Rolle PATIENT.
 | Auth | Argon2id (`argon2-cffi`), serverseitige Sessions (opaker Token, gehasht in DB), HttpOnly-Cookie, TOTP-MFA (`pyotp`) | Kein JWT-Algorithmus-Verwirrungsrisiko, Sitzungen jederzeit serverseitig widerrufbar, MFA ohne externe Dienste |
 | Datenbank | PostgreSQL 16 (offizielles Image, non-root), StatefulSet + PVC | Realistische Trennung in eigene Komponente, eigene Vertrauensgrenze, saubere NetworkPolicy-Demonstration |
 | Container | Multi-Stage-Dockerfiles, Basis-Images per Digest gepinnt (Backend: `python:3.14-alpine`), non-root (UID 10001), `readOnlyRootFilesystem`, Abhängigkeiten nur mit Hash-Prüfung | Reproduzierbare Builds, Supply-Chain-Härtung |
-| Orchestrierung | Kubernetes via **kind** (lokal und im CI-Runner), ingress-nginx, Kustomize (base + overlays `local`/`ci`) | kind läuft identisch in GitHub Actions und auf dem Laptop; Kustomize ohne Templating-Sprache ist leichter zu reviewen als Helm |
+| Orchestrierung | Kubernetes 1.35 via **kind** (lokal und im CI-Runner), **Envoy Gateway** (Gateway API, ADR A26), Kustomize (base + overlays `local`/`ci`) | kind läuft identisch in GitHub Actions und auf dem Laptop; Kustomize ohne Templating-Sprache ist leichter zu reviewen als Helm |
 | CI/CD | GitHub Actions | Repo liegt auf GitHub; Marketplace-Actions für alle Scanner |
 | Registry | GitHub Container Registry (GHCR) | Zwischeninstanz laut Aufgabe; Zugriff mit `GITHUB_TOKEN` ohne weitere Secrets |
 | SBOM | Syft → CycloneDX JSON (Quellcode + Image) | Standardformat, von Trivy/Grype weiterverarbeitbar |
@@ -90,7 +90,7 @@ Selbstregistrierung erzeugt immer die Rolle PATIENT.
 
 Das Architekturdiagramm liegt unter `docs/diagrams/architektur.svg`
 (Quelle: `architektur.mmd` als Mermaid). Es bildet die komplette Landschaft ab:
-Nutzer:innen → Ingress → Frontend/Backend/DB im Cluster → Registry → CI/CD-Pipeline →
+Nutzer:innen → Gateway → Frontend/Backend/DB im Cluster → Registry → CI/CD-Pipeline →
 Entwickler-Workstation mit `make up`.
 
 ![Architekturdiagramm](diagrams/architektur.svg)
@@ -100,18 +100,18 @@ Entwickler-Workstation mit `make up`.
 | # | Komponente | Aufgabe | Sicherheitsrelevante Eigenschaften |
 |---|---|---|---|
 | 1 | **Browser (Patient:in, Personal, Ärzt:in, Admin)** | Bedient die React-SPA | Außerhalb jeder Vertrauensgrenze; alle Eingaben gelten als feindlich |
-| 2 | **Ingress-NGINX Controller** (Namespace `ingress-nginx`) | Einziger Eintrittspunkt in den Cluster, TLS-Terminierung, Routing `/` → frontend, `/api` → backend | TLS-Zertifikat als Secret (lokal selbstsigniert), Request-Größenlimit, Rate-Limit-Annotation auf `/api/auth/*` |
+| 2 | **Envoy Gateway** (Controller + Envoy-Proxy im Namespace `envoy-gateway-system`; Gateway `praxis-gateway` und HTTPRoutes im Namespace `praxis-termine`) | Einziger Eintrittspunkt in den Cluster, TLS-Terminierung, Routing `/` → frontend, `/api` → backend, HTTP → HTTPS-Redirect | TLS-Zertifikat `tls-cert` als Secret (lokal selbstsigniert, TLS ≥ 1.2), HSTS per `ResponseHeaderModifier`, lokales Rate-Limit auf `/api/v1/auth/*` (`BackendTrafficPolicy`), Client-IP per `X-Forwarded-For` (`ClientTrafficPolicy`), Proxy nur auf 127.0.0.1:80/443 erreichbar |
 | 3 | **Frontend-Deployment** (`praxis-frontend`) | Liefert die statische SPA aus | nginx-unprivileged, Port 8080, CSP ohne `unsafe-inline`, HSTS, `X-Frame-Options: DENY`, `readOnlyRootFilesystem` mit emptyDir für Cache/PID |
 | 4 | **Backend-Deployment** (`praxis-backend`) | REST-API, Auth, RBAC, Fachlogik, Audit-Log | Pydantic-Validierung, generische Fehlerantworten, Argon2id, Sessions, TOTP, Rate-Limit, kein Root, Secrets nur per Env/Volume |
 | 5 | **Init-Container `migrate`** | Führt `alembic upgrade head` vor dem Start aus | Gleiches Image wie Backend, eigenes DB-Konto mit DDL-Rechten nur hier; Backend-Laufzeitkonto hat nur DML |
 | 6 | **PostgreSQL StatefulSet** (`praxis-postgres`) | Persistenz | Nur von Backend-Pods erreichbar (NetworkPolicy), Passwort aus Secret, PVC, non-root, kein Ingress |
 | 7 | **Secrets / ConfigMap** | `db-credentials`, `app-session-key`, `admin-bootstrap`, `tls-cert`; `app-config` | Zur Deploy-Zeit erzeugt (Makefile / Pipeline), nie im Repo; nur an die Pods gemountet, die sie brauchen |
 | 8 | **ServiceAccounts** `frontend-sa`, `backend-sa`, `postgres-sa` | Identität der Pods | Keine RBAC-Rechte, `automountServiceAccountToken: false` |
-| 9 | **NetworkPolicies** | Mikrosegmentierung im Namespace | `default-deny-all` (Ingress + Egress), Allow-Regeln: Ingress-Controller → frontend/backend, backend → postgres:5432, Egress DNS |
+| 9 | **NetworkPolicies** | Mikrosegmentierung im Namespace | `default-deny-all` (Ingress + Egress), Allow-Regeln: Envoy-Proxy (Namespace `envoy-gateway-system`) → frontend/backend, backend → postgres:5432, Egress DNS |
 | 10 | **GitHub Repository (privat)** | Quellcode, Manifeste, Pipeline, Evidence | Branch Protection auf `main` (PR + grüne Checks), keine Secrets im Repo |
 | 11 | **GitHub Actions Pipeline** | SBOM → SAST → SCA → Secret-Scan → Build → Image-Scan → Quality Gate → Push → Deploy-Test → Evidence | Minimale Token-Permissions pro Job, gepinnte Actions (SHA), Reports als Artefakte + Commit nach `/evidence` |
 | 12 | **GHCR (Container-Registry)** | Zwischeninstanz zwischen Pipeline und Cluster | Images per Digest referenziert, optional cosign-signiert |
-| 13 | **Deploy-Test (kind im Runner)** | Beweist, dass das gebaute Image mit den Manifesten startet | Pull per Digest aus GHCR, `kubectl rollout status`, Smoke-Test über Ingress |
+| 13 | **Deploy-Test (kind im Runner)** | Beweist, dass das gebaute Image mit den Manifesten startet | Pull per Digest aus GHCR, `kubectl rollout status`, Smoke-Test über das Gateway |
 | 14 | **Entwickler-Workstation** | `make up` reproduziert den Deploy-Test lokal | Gleiche Manifeste (Overlay `local`), Secrets lokal erzeugt |
 
 ---
@@ -119,32 +119,46 @@ Entwickler-Workstation mit `make up`.
 ## 5. Laufzeitarchitektur im Cluster
 
 ```
-Namespace ingress-nginx                 Namespace praxis-termine (NetworkPolicy: default deny)
+Host 127.0.0.1:80/443 -> kind-Node :30080/:30443 (NodePort)
+
+Namespace envoy-gateway-system          Namespace praxis-termine (PSA restricted, NetworkPolicy: default deny)
 +-------------------------+             +------------------------------------------------------+
-| ingress-nginx-controller|---:8080---> | Deployment praxis-frontend  (1 Replica, nginx-unpriv.)|
+| envoy-gateway (Control) |             | Gateway praxis-gateway · HTTPRoutes · Policies       |
+| Envoy-Proxy (Data Plane)|---:8080---> | Deployment praxis-frontend  (1 Replica, nginx-unpriv.)|
 |  TLS :443 / HTTP :80    |             |                                                      |
 |  /     -> frontend-svc  |---:8000---> | Deployment praxis-backend   (1 Replica, FastAPI)     |
 |  /api  -> backend-svc   |             |   init: migrate (alembic)                            |
-+-------------------------+             |        | :5432                                       |
-                                        |        v                                             |
+|  http  -> 301 https     |             |        | :5432                                       |
++-------------------------+             |        v                                             |
                                         | StatefulSet praxis-postgres (1 Replica) -- PVC 1Gi   |
                                         | Secrets: db-credentials, app-session-key,            |
-                                        |          admin-bootstrap · ConfigMap: app-config     |
+                                        |   admin-bootstrap, tls-cert · ConfigMap: app-config  |
+                                        | ResourceQuota + LimitRange · SAs ohne Token/RBAC     |
                                         +------------------------------------------------------+
 ```
+
+Der Envoy-Gateway-Controller liest das Gateway, die Routen und das Secret `tls-cert` aus
+`praxis-termine` und konfiguriert damit den Envoy-Proxy. Der Proxy läuft im eigenen Namespace,
+Anwendungs-Pods haben keine Rechte auf die Kubernetes-API.
 
 **Netzwerkflüsse (nur diese sind erlaubt):**
 
 | Von | Nach | Port | Zweck |
 |---|---|---|---|
-| Browser | Ingress | 443/TCP | HTTPS |
-| ingress-nginx | praxis-frontend | 8080/TCP | SPA ausliefern |
-| ingress-nginx | praxis-backend | 8000/TCP | REST-API unter `/api` |
+| Browser | Envoy-Proxy | 443/TCP (80/TCP nur Redirect) | HTTPS |
+| Envoy-Proxy (`envoy-gateway-system`) | praxis-frontend | 8080/TCP | SPA ausliefern |
+| Envoy-Proxy (`envoy-gateway-system`) | praxis-backend | 8000/TCP | REST-API unter `/api` |
 | praxis-backend | praxis-postgres | 5432/TCP | Datenbank |
 | alle Pods | kube-dns | 53/UDP+TCP | Namensauflösung |
 
 Das Frontend spricht **nie** direkt mit dem Backend-Pod, sondern der Browser ruft `/api`
-über denselben Ingress-Host auf (Same-Origin, keine CORS-Freigaben nötig).
+über denselben Host am Gateway auf (Same-Origin, keine CORS-Freigaben nötig).
+
+**Client-IP:** Envoy vertraut keinem vom Client mitgeschickten `X-Forwarded-For`
+(`numTrustedHops: 0`) und hängt die echte Quell-IP an. Das Backend (uvicorn `--proxy-headers`)
+vertraut nur dem Pod-Netz `10.244.0.0/16` (`FORWARDED_ALLOW_IPS`); da die NetworkPolicy Zugriffe
+auf das Backend nur aus `envoy-gateway-system` zulässt, kann nur der Proxy diesen Header setzen.
+Ohne diese Kette zählte das IP-Limit aus SR-08 alle Anfragen als eine IP.
 
 **Ressourcen:** Requests/Limits für CPU und RAM auf allen Containern, Liveness/Readiness-Probes
 (`/healthz`, `/readyz`), PodDisruptionBudget nicht nötig (Einzelreplica, lokales Cluster).
@@ -214,7 +228,7 @@ Alle Endpunkte unter `/api/v1`, JSON, Fehlerschema
 | `GET /doctor/schedule?date` · `PATCH /doctor/appointments/{id}/status` | DOCTOR | Tagesplan, Status |
 | `GET/POST/PATCH /admin/users` · `GET/POST/PATCH /admin/doctors` · `GET/POST/PATCH /admin/services` | ADMIN | Verwaltung |
 | `GET /admin/audit` | ADMIN | Audit-Log |
-| `GET /healthz` · `GET /readyz` | – | Probes (keine Versions-/Stack-Infos); zusätzlich unter `/api/v1/` für den Smoke-Test über den Ingress |
+| `GET /healthz` · `GET /readyz` | – | Probes (keine Versions-/Stack-Infos); zusätzlich unter `/api/v1/` für den Smoke-Test über das Gateway |
 
 OpenAPI-UI (`/docs`) ist nur im Entwicklungsmodus aktiv, im Cluster deaktiviert.
 
@@ -237,7 +251,7 @@ Evidence-Ordner.
 | 7 Image-Scan + Image-SBOM | Trivy image, Syft | Gleiche Gates wie 3; SBOM des finalen Images |
 | 8 Quality Gate | Skript `scripts/quality-gate.py` aggregiert alle Reports | Fail → Pipeline bricht ab, kein Push |
 | 9 Push | GHCR, Digest wird ausgegeben; cosign keyless (Bonus) | `image-ref.txt`, `digest.txt` |
-| 10 Deploy-Test | kind im Runner, ingress-nginx, Overlay `ci`, Image per Digest | `kubectl rollout status`, Smoke-Test `GET /healthz` + Login-Seite über Ingress |
+| 10 Deploy-Test | kind im Runner, Envoy Gateway, Overlay `ci`, Image per Digest | `kubectl rollout status`, Smoke-Test `GET /healthz` + Login-Seite über das Gateway |
 | 11 Evidence | Run-Log + alle Reports | Upload als Artefakt und Commit nach `/evidence/**` (`[skip ci]`) |
 
 **Deployment lokal:** `make up` führt dieselben Schritte aus wie Stufe 10 (siehe `Makefile`),
@@ -259,12 +273,13 @@ wendet `infrastructure/k8s/overlays/local` an, wartet auf Health und gibt `Ready
 | A7 | Kustomize statt Helm | Helm-Chart | Reine YAML-Manifeste, leichter zu reviewen und zu scannen (kube-linter/Trivy config), kein Templating-Fehlerpotenzial |
 | A8 | GHCR als Registry | Docker Hub, lokale Registry im Cluster | Keine zusätzlichen Credentials (`GITHUB_TOKEN`), Digest-Referenzen, Paket-Sichtbarkeit steuerbar |
 | A9 | Secrets zur Deploy-Zeit generieren | Sealed Secrets, SOPS, Vault | Für ein lokales Cluster ausreichend und ohne weitere Infrastruktur; keine Secrets im Repo; in der Doku als Abweichung reflektiert |
-| A10 | TLS mit selbstsigniertem Zertifikat am Ingress | cert-manager mit Let's Encrypt | Kein öffentlicher Hostname vorhanden; HSTS/Secure-Cookies trotzdem demonstrierbar |
+| A10 | TLS mit selbstsigniertem Zertifikat am Gateway | cert-manager mit Let's Encrypt | Kein öffentlicher Hostname vorhanden; HSTS/Secure-Cookies trotzdem demonstrierbar |
 | A11 | MFA per TOTP | WebAuthn/Passkeys, SMS | Ohne externe Dienste umsetzbar, +10 Bonuspunkte, Standard-Apps nutzbar |
 | A12 | Python 3.14 statt 3.12 (19.10.2026) | Python 3.12 | Aktuelle stabile Version, lokal installiert, alle Abhängigkeiten haben Wheels; längerer Support-Zeitraum |
 | A13 | Backend-Basis-Image `python:3.14-alpine` statt `python:3.14-slim` (19.10.2026) | Debian-slim, Distroless, Chainguard | slim enthielt 44 HIGH-CVEs in Systempaketen (util-linux, ncurses, perl) ohne verfügbaren Fix und hätte das Quality Gate dauerhaft blockiert; Alpine: 0 HIGH/CRITICAL, 100 MB kleiner, Shell für Healthcheck vorhanden |
 | A14 | `make up` unter Linux/macOS/WSL2 (19.10.2026) | Native Windows-Ausführung | Die Windows-„Intelligente App-Steuerung“ blockiert unsignierte Binärdateien (`make.exe`, `kind.exe`, kompilierte Python-Erweiterungen); WSL2 ist ohnehin die Docker-Desktop-Basis und entspricht der Linux-Umgebung der Pipeline |
 | A15 | Sync-SQLAlchemy mit psycopg 3, Lockfiles mit Hashes via `uv pip compile --universal` | async SQLAlchemy, Poetry | Einfacher, für die Last ausreichend; Hash-Pinning schützt vor manipulierten Paketen (Supply Chain) |
+| A26 | Envoy Gateway (Gateway API) als Eintrittspunkt, Installation per `install.yaml` ohne Helm (19.10.2026, L1; ersetzt ingress-nginx) | ingress-nginx beibehalten, Traefik, NGINX Gateway Fabric, Chainguard-Fork von ingress-nginx | ingress-nginx ist seit März 2026 eingestellt (keine Releases, keine Security-Patches, Repository read-only) und hatte zuvor kritische CVEs; ein ungepatchter Eintrittspunkt widerspricht Security by Design. Gateway API ist der offizielle Nachfolger, Envoy Gateway wird aktiv gepflegt (v1.9.2). TLS, Redirect, HSTS und Rate-Limit sind typisierte Ressourcen statt freier Annotationen und damit per Schema validierbar. `install.yaml` per SHA-256 geprüft; kind: Proxy-Service als NodePort 30080/30443, per `extraPortMappings` auf 127.0.0.1:80/443 |
 
 ---
 
@@ -276,6 +291,7 @@ wendet `infrastructure/k8s/overlays/local` an, wartet auf Health und gibt `Ready
 | Selbstsigniertes TLS-Zertifikat | Akzeptiert | Lokales Cluster ohne öffentliche Domain; im Browser muss das Zertifikat einmalig akzeptiert werden |
 | Keine Verschlüsselung der Datenbank-Dateien (at rest) | Akzeptiert | kind-PVC auf lokaler Platte; wäre im Produktivbetrieb über Storage-Klasse zu lösen |
 | Postgres-Zugangsdaten als Kubernetes-Secret (base64) | Akzeptiert | Kein externer Secret-Manager vorhanden; etcd-Verschlüsselung ist Cluster-Thema, nicht App-Thema |
+| Rate-Limit am Gateway nicht pro Client-IP | Akzeptiert | Das lokale Rate-Limit von Envoy Gateway kennt keine Zählung pro IP („Distinct“ nur mit Redis-basiertem globalem Limit); es begrenzt alle Anfragen auf `/api/v1/auth/*` gemeinsam (60/min). Die Sperre pro Konto und pro IP setzt das Backend durch |
 | Ein Replica je Komponente | Akzeptiert | Verfügbarkeit ist kein Prüfungsziel; spart Ressourcen im Runner |
 | OpenAPI-UI im Cluster deaktiviert | Härtung | Keine Endpunkt-Enumeration für Angreifer:innen |
 

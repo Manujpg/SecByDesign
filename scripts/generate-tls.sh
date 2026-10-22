@@ -27,9 +27,9 @@ umask 077
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
-# ECDSA P-256; SAN für Hostname und Loopback-Adresse. MSYS_NO_PATHCONV verhindert, dass
-# Git Bash "/CN=..." in einen Windows-Pfad umschreibt.
-MSYS_NO_PATHCONV=1 openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+# ECDSA P-256; SAN für Hostname und Loopback-Adresse. MSYS2_ARG_CONV_EXCL verhindert,
+# dass Git Bash "/CN=..." in einen Windows-Pfad umschreibt (unter Linux wirkungslos).
+MSYS2_ARG_CONV_EXCL="/CN" openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
   -keyout "$workdir/tls.key" -out "$workdir/tls.crt" -days "$DAYS" \
   -subj "/CN=localhost/O=PraxisTermin (lokal)" \
   -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \

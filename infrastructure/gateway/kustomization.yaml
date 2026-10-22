@@ -1,0 +1,8 @@
+# Cluster-Plattform: Konfiguration des Envoy-Gateway-Controllers.
+# Wird nach der Installation von Envoy Gateway (make gateway) angewendet; die
+# anwendungsbezogenen Ressourcen (Gateway, Routen, Policies) liegen in k8s/base.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - envoyproxy.yaml
+  - gatewayclass.yaml

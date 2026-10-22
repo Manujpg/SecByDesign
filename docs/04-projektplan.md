@@ -36,12 +36,12 @@ Designsystem, der Eigenanteil liegt bei drei kleinen Komponenten und den Seiten-
 
 | # | Paket | Inhalt | Ergebnis |
 |---|---|---|---|
-| L1 | kind & Ingress | `infrastructure/kind/cluster.yaml` (Port-Mapping 80/443), ingress-nginx-Installation, selbstsigniertes TLS-Zertifikat als Secret | Cluster lokal startbar |
+| L1 | kind & Gateway | `infrastructure/kind/cluster.yaml` (Port-Mapping 80/443), Envoy-Gateway-Installation (ADR A26), Gateway mit TLS, Routen, Redirect, HSTS, Rate-Limit, selbstsigniertes TLS-Zertifikat als Secret | Cluster lokal startbar |
 | L2 | Namespace & Identität | Namespace `praxis-termine`, drei ServiceAccounts ohne Rechte, `automountServiceAccountToken: false`, ResourceQuota/LimitRange | SR-10 (a, b) |
 | L3 | Workloads gehärtet | Deployments Frontend/Backend, StatefulSet Postgres mit PVC, Init-Container Migration, Probes, Requests/Limits, vollständiger SecurityContext, emptyDir für Schreibpfade | SR-10 (c) |
-| L4 | NetworkPolicies | default-deny Ingress+Egress, Allow: Ingress-Controller → Frontend/Backend, Backend → Postgres, DNS-Egress; Connectivity-Tests | SR-10 (d) |
+| L4 | NetworkPolicies | default-deny Ingress+Egress, Allow: Envoy-Proxy (`envoy-gateway-system`) → Frontend/Backend, Backend → Postgres, DNS-Egress; Connectivity-Tests | SR-10 (d) |
 | L5 | Secrets & Konfiguration | `scripts/generate-secrets.sh` (DB-Passwörter, Session-Key, Admin-Initialpasswort), ConfigMap, DB-Init-Skript mit zwei DB-Rollen, Kustomize base/overlays | SR-06 (K8s-Seite) |
-| L6 | Makefile | `make up` (Cluster → Ingress → Namespace → Secrets → Image laden → Manifeste → Warten → „Ready“), `make down`, `make smoke`, `make bundle` (Abgabe-Zip) | Reproduzierbarkeit 7 P. |
+| L6 | Makefile | `make up` (Cluster → Gateway → Namespace → Secrets → Image laden → Manifeste → Warten → „Ready“), `make down`, `make smoke`, `make bundle` (Abgabe-Zip) | Reproduzierbarkeit 7 P. |
 | L7 | Deploy-Stage Pipeline | Job `deploy-test`: kind im Runner, Pull per Digest aus GHCR, Overlay `ci`, Rollout-Wait, Smoke-Test, Logs als Evidence (`run/`) | Pipeline deployt über Registry |
 | L8 | Fachfunktionen Praxis | Backend-Endpunkte + Seiten für Personal (Terminverwaltung, Patientensuche, Slot-Pflege) und Ärzt:in (Tagesplan, Status) | Rollen STAFF/DOCTOR nutzbar |
 | L9 | Admin-Funktionen | Benutzer-/Rollenverwaltung, Ärzt:innen, Leistungen, Audit-Ansicht (Backend + Frontend) | Rolle ADMIN nutzbar |
@@ -93,6 +93,7 @@ Designsystem, der Eigenanteil liegt bei drei kleinen Komponenten und den Seiten-
 | Frontend-Aufwand unterschätzt | Zeitverzug | Strikt shadcn/ui, Seiteninventar nicht erweitern, Admin-Seiten als einfache Tabellen |
 | Evidence-Commit aus Pipeline kollidiert mit Branch Protection | Evidence fehlt im Repo | Bot-Commit mit `[skip ci]` auf `main` per PAT mit `contents:write`, alternativ Evidence-PR |
 | Windows-Toolchain (make, bash) | `make up` läuft nicht auf Windows; **eingetreten 19.10.:** Smart App Control blockiert `make.exe`, `kind.exe` und kompilierte Python-Erweiterungen | `make up` in WSL2 (ADR A14); Backend-Tests unter Windows mit SQLAlchemy ohne C-Erweiterung; CI läuft unter Linux und ist nicht betroffen |
+| Eingesetzte Komponente wird eingestellt (End of Life) | Keine Security-Patches mehr; **eingetreten 19.10.:** ingress-nginx seit März 2026 eingestellt | Wechsel auf Envoy Gateway (ADR A26); Versionen aller Plattform-Komponenten vor Abgabe erneut auf Support-Status prüfen |
 
 ## 6. Nächste konkrete Schritte (diese Woche)
 
@@ -108,3 +109,5 @@ Designsystem, der Eigenanteil liegt bei drei kleinen Komponenten und den Seiten-
 | 07.10.2026 | M1 | Repo `Manujpg/SecByDesign` angelegt, Skelett gepusht, Branch Protection auf `main` |
 | 19.10.2026 | M2 | Backend-Kern fertig: Konfiguration ohne Default-Secrets, JSON-Logging mit Request-ID, einheitliche Fehlerantworten ohne Informationslecks, Security-Header, Health/Ready, Datenmodell mit DB-Constraints (u. a. Schutz vor Doppelbuchung), Alembic-Migration 0001 mit append-only Audit-Log, Dev-PostgreSQL mit zwei DB-Rollen, 25 Tests grün, Ruff und Bandit ohne Funde |
 | 19.10.2026 | M7 (Backend) | Dockerfile Multi-Stage auf `python:3.14-alpine` (Digest gepinnt), Hash-geprüfte Abhängigkeiten, non-root, read-only lauffähig; Trivy: 0 HIGH/CRITICAL; pip-audit: keine bekannten Schwachstellen |
+| 19.10.2026 | L1 | kind-Konfiguration (Node-Image per Digest, Ports nur auf 127.0.0.1), Envoy Gateway v1.9.2 statt ingress-nginx (ADR A26, Hash-Prüfung der `install.yaml`), Gateway mit TLS-Listener und HTTP→HTTPS-Redirect, HSTS, Rate-Limit auf `/api/v1/auth`, Client-IP-Weitergabe, `scripts/generate-tls.sh`; Kustomize-Build geprüft, **Lauf im Cluster steht aus** |
+| 19.10.2026 | L2 | Namespace mit Pod Security Admission `restricted`, drei ServiceAccounts ohne RBAC und Token-Automount (auch `default`), ResourceQuota (u. a. keine NodePort/LoadBalancer-Services), LimitRange, Prüfskript `make check-k8s`; **Lauf im Cluster steht aus** |

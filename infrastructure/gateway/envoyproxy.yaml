@@ -1,0 +1,29 @@
+# Envoy-Proxy-Konfiguration für kind (Paket L1, ADR A26)
+#
+# Envoy Gateway legt je Gateway einen Proxy (Deployment + Service) im Namespace
+# envoy-gateway-system an. Standardmäßig ist der Service vom Typ LoadBalancer, den kind
+# ohne Zusatzwerkzeug nicht bedienen kann. Hier wird er auf NodePort mit festen Ports
+# umgestellt, die infrastructure/kind/cluster.yaml auf 127.0.0.1:80/443 durchreicht.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: praxis-proxy
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 1
+      envoyService:
+        type: NodePort
+        # Ports der Service-Spezifikation werden per "port" (= Listener-Port) gemergt.
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              ports:
+                - port: 80
+                  nodePort: 30080
+                - port: 443
+                  nodePort: 30443

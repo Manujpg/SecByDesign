@@ -1,0 +1,29 @@
+# Standard- und Maximalwerte je Container (Paket L2, SR-10 a)
+#
+# Die ResourceQuota verlangt Requests/Limits für jeden Container. Fehlen sie in einem
+# Manifest, setzt die LimitRange diese Standardwerte, statt den Pod abzulehnen; die
+# Manifeste aus L3 geben die Werte trotzdem explizit an.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: praxis-limits
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        cpu: 250m
+        memory: 256Mi
+      min:
+        cpu: 10m
+        memory: 16Mi
+      max:
+        cpu: "1"
+        memory: 1Gi
+    - type: PersistentVolumeClaim
+      min:
+        storage: 100Mi
+      max:
+        storage: 2Gi
