@@ -1,0 +1,33 @@
+{
+  "component": "backend",
+  "run": "run-1-3",
+  "passed": false,
+  "violations": [
+    "Bericht fehlt: trivy-fs.json",
+    "Bericht fehlt: pip-audit.json"
+  ],
+  "warnings": [],
+  "stats": {
+    "secrets": 0,
+    "semgrep_files": 46,
+    "semgrep_findings": {},
+    "bandit_findings": {},
+    "sbom_components": 103,
+    "sbom_dependencies": 101,
+    "sbom_spec": "1.7",
+    "jobs": {
+      "secrets": "success",
+      "sbom": "success",
+      "sast": "success",
+      "sca": "success",
+      "test": "success"
+    }
+  },
+  "rules": {
+    "secrets": "Abbruch bei jedem Fund",
+    "sca": "Abbruch bei HIGH/CRITICAL oder CVSS >= 7.0",
+    "sast": "Abbruch bei Semgrep ERROR oder Bandit HIGH",
+    "sbom": "Abbruch, wenn SBOM fehlt oder leer ist",
+    "completeness": "Abbruch, wenn ein Bericht fehlt, leer oder unlesbar ist"
+  }
+}

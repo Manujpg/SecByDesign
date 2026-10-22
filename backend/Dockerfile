@@ -4,7 +4,7 @@
 #
 # Sicherheitsmerkmale (SR-06, SR-10, SR-12):
 # - Basis-Image per Digest gepinnt (reproduzierbar, keine stillen Tag-Wechsel)
-# - Abhängigkeiten nur mit geprüften Hashes aus requirements.lock (--require-hashes)
+# - Abhängigkeiten nur mit geprüften Hashes aus requirements.txt (--require-hashes)
 # - Laufzeit-Image ohne pip/Build-Werkzeuge im venv, ohne Tests und Dev-Dateien
 # - Läuft als unprivilegierter Nutzer 10001, kompatibel mit readOnlyRootFilesystem
 # =============================================================================
@@ -27,8 +27,8 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /build
-COPY requirements.lock ./
-RUN pip install --require-hashes --no-deps -r requirements.lock
+COPY requirements.txt ./
+RUN pip install --require-hashes --no-deps -r requirements.txt
 # pip/setuptools werden im fertigen venv nicht gebraucht (kleinere Angriffsfläche).
 RUN pip uninstall -y pip setuptools
 
@@ -51,11 +51,14 @@ LABEL org.opencontainers.image.title="praxistermin-backend" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
+# SETTINGS_ENV_FILE="": Konfiguration nur aus Umgebungsvariablen, nie aus einer .env-Datei.
+# FORWARDED_ALLOW_IPS: Proxy-Header (X-Forwarded-For) nur vom Ingress übernehmen;
+# im Cluster per Env auf den Ingress-Controller setzen.
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=prod \
-    # Proxy-Header (X-Forwarded-For) nur vom Ingress übernehmen; im Cluster per Env setzen.
+    SETTINGS_ENV_FILE="" \
     FORWARDED_ALLOW_IPS=127.0.0.1
 
 # pip aus dem Basis-Image entfernen (wird zur Laufzeit nicht gebraucht, kleinere Angriffsfläche)

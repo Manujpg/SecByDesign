@@ -168,21 +168,39 @@ Ohne diese Kette zählte das IP-Limit aus SR-08 alle Anfragen als eine IP.
 ## 6. Authentifizierung, Sitzungen, MFA
 
 1. **Passwörter:** Argon2id (time=3, memory=64 MiB, parallelism=4), Mindestlänge 12 Zeichen,
-   Maximallänge 128, Abgleich gegen Liste häufiger Passwörter (Top 10k, lokal im Image).
-2. **Login:** `POST /api/v1/auth/login` → bei Erfolg und aktivierter MFA: Zwischenzustand
-   `mfa_pending` (eigenes kurzlebiges Cookie, 5 min), dann `POST /api/v1/auth/mfa/verify`
-   mit 6-stelligem TOTP (±1 Zeitschritt). Fehlermeldung immer identisch
-   („E-Mail oder Passwort ungültig“), gleiche Antwortzeit durch Dummy-Hash bei unbekannter E-Mail.
+   Maximallänge 128, Stärkeprüfung mit zxcvbn (Score ≥ 3; erkennt häufige Passwörter,
+   Wörterbücher, Tastaturmuster) und Ausschluss persönlicher Angaben (E-Mail-Teil, Name).
+   Keine starren Zeichenklassen-Regeln (NIST SP 800-63B). Bei geänderten Argon2-Parametern
+   wird beim nächsten Login automatisch neu gehasht. Umgesetzt in M3 (ADR A16).
+2. **Login:** `POST /api/v1/auth/login` → bei aktivierter MFA wird eine Sitzung mit
+   `mfa_verified=false` und nur 5 min Laufzeit ausgestellt, die ausschließlich
+   `POST /api/v1/auth/mfa/verify` (M4) und Logout erlaubt; nach erfolgreicher Prüfung
+   wird das Token rotiert. Fehlermeldung immer identisch („E-Mail oder Passwort ungültig“),
+   gleiche Antwortzeit durch Dummy-Hash bei unbekannter E-Mail.
+   **Registrierung** liefert für „angelegt“ und „E-Mail bereits vergeben“ dieselbe Antwort
+   (keine Konto-Enumeration); der Fehlschlag steht nur im Audit-Log.
 3. **Sitzung:** 256-Bit-Zufallstoken, in der DB nur als SHA-256-Hash gespeichert;
    Cookie `__Host-session` mit `HttpOnly; Secure; SameSite=Strict; Path=/`.
    Leerlauf-Timeout 30 min, absolutes Limit 8 h, Rotation nach Login/MFA/Passwortwechsel,
    Logout invalidiert serverseitig. Alle Sitzungen eines Kontos widerrufbar (Admin, Passwortwechsel).
-4. **CSRF:** SameSite=Strict plus Origin/Referer-Prüfung auf allen zustandsändernden Requests.
-5. **Brute-Force-Schutz:** Zähler pro Konto und pro IP (in DB), nach 10 Fehlversuchen 15 min Sperre,
-   Ingress-Rate-Limit zusätzlich auf `/api/v1/auth/*`.
-6. **MFA (TOTP, RFC 6238):** Secret pro Nutzer:in, verschlüsselt mit `app-session-key` (AES-GCM)
-   in der DB; Einrichtung per QR-Code (otpauth-URI), 8 Recovery-Codes (gehasht); Pflicht für
-   STAFF/DOCTOR/ADMIN, optional für PATIENT.
+4. **CSRF:** SameSite=Strict plus Origin/Referer-Prüfung (`ALLOWED_ORIGINS`) auf allen
+   zustandsändernden Requests unter `/api/`; ohne Origin und Referer wird abgelehnt.
+5. **Brute-Force-Schutz:** Fehlversuche werden aus dem append-only Audit-Log gezählt, pro
+   IP (30 in 15 min) und pro HMAC-Kennung der E-Mail (10 seit dem letzten Erfolg, 15 min
+   Fenster). Die Sperre greift auch für nicht existierende E-Mails, damit sie kein Konto
+   verrät; Antwort `429` mit `Retry-After`. Registrierungen pro IP begrenzt (10 in 15 min).
+   Ingress-Rate-Limit zusätzlich auf `/api/v1/auth/*`. Voraussetzung: uvicorn übernimmt die
+   Client-IP vom Ingress (`FORWARDED_ALLOW_IPS`), sonst zählen alle Requests als eine IP.
+6. **MFA (TOTP, RFC 6238), umgesetzt in M4:** 160-Bit-Secret pro Nutzer:in, in der DB mit
+   AES-256-GCM verschlüsselt. Der Schlüssel wird per HKDF aus `APP_SECRET_KEY` abgeleitet, die
+   Nutzer-ID ist Associated Data (ein vertauschtes Secret ist nicht entschlüsselbar), ein
+   Versionsbyte erlaubt späteren Schlüsselwechsel. Codes gelten ±30 s, jeder Zeitschritt aber nur
+   einmal (`mfa_last_used_step`, Replay-Schutz). Nach 5 falschen Codes wird die Zwischensitzung
+   verworfen, nach 10 Fehlversuchen in 15 min wird das Konto gesperrt. Einrichtung per otpauth-URI
+   (QR-Code rendert das Frontend), Bestätigung mit erstem Code, danach 8 Recovery-Codes
+   (50 Bit, nur als HMAC gespeichert, einmalig). Pflicht für STAFF/DOCTOR/ADMIN (nicht abschaltbar,
+   ohne MFA kein Zugriff auf Fachfunktionen), optional für PATIENT (Abschalten nur mit Passwort
+   und Code). Aktivieren beendet alle anderen Sitzungen.
 7. **Audit-Log:** Login/Logout/Fehlversuch/Sperre, MFA-Änderungen, Rollenänderungen,
    Terminänderungen durch Personal; Felder: Zeit, Akteur-ID, Aktion, Ziel-ID, Request-ID, IP.
    Keine Passwörter, keine Freitexte, keine Gesundheitsdaten.
@@ -249,7 +267,7 @@ Evidence-Ordner.
 | 5 Build | `npm run build`, `pip install` + Tests (pytest, vitest) | Unit-Tests müssen grün sein |
 | 6 Container-Build | Docker Buildx, Multi-Stage, Basis-Images per Digest | Image-Tag `<version>-<sha>` |
 | 7 Image-Scan + Image-SBOM | Trivy image, Syft | Gleiche Gates wie 3; SBOM des finalen Images |
-| 8 Quality Gate | Skript `scripts/quality-gate.py` aggregiert alle Reports | Fail → Pipeline bricht ab, kein Push |
+| 8 Quality Gate | Skript `scripts/quality_gate.py` aggregiert alle Reports (fail-closed: fehlender, leerer oder inhaltsloser Bericht = Abbruch) | Fail → Pipeline bricht ab, kein Push |
 | 9 Push | GHCR, Digest wird ausgegeben; cosign keyless (Bonus) | `image-ref.txt`, `digest.txt` |
 | 10 Deploy-Test | kind im Runner, Envoy Gateway, Overlay `ci`, Image per Digest | `kubectl rollout status`, Smoke-Test `GET /healthz` + Login-Seite über das Gateway |
 | 11 Evidence | Run-Log + alle Reports | Upload als Artefakt und Commit nach `/evidence/**` (`[skip ci]`) |
@@ -279,6 +297,16 @@ wendet `infrastructure/k8s/overlays/local` an, wartet auf Health und gibt `Ready
 | A13 | Backend-Basis-Image `python:3.14-alpine` statt `python:3.14-slim` (19.10.2026) | Debian-slim, Distroless, Chainguard | slim enthielt 44 HIGH-CVEs in Systempaketen (util-linux, ncurses, perl) ohne verfügbaren Fix und hätte das Quality Gate dauerhaft blockiert; Alpine: 0 HIGH/CRITICAL, 100 MB kleiner, Shell für Healthcheck vorhanden |
 | A14 | `make up` unter Linux/macOS/WSL2 (19.10.2026) | Native Windows-Ausführung | Die Windows-„Intelligente App-Steuerung“ blockiert unsignierte Binärdateien (`make.exe`, `kind.exe`, kompilierte Python-Erweiterungen); WSL2 ist ohnehin die Docker-Desktop-Basis und entspricht der Linux-Umgebung der Pipeline |
 | A15 | Sync-SQLAlchemy mit psycopg 3, Lockfiles mit Hashes via `uv pip compile --universal` | async SQLAlchemy, Poetry | Einfacher, für die Last ausreichend; Hash-Pinning schützt vor manipulierten Paketen (Supply Chain) |
+| A16 | Passwortstärke mit zxcvbn statt statischer Top-10k-Liste (M3) | Top-10k-Liste im Image, HIBP-API | Erkennt neben häufigen Passwörtern auch Muster und Wörterbücher; keine externe Abfrage nötig (Egress ist gesperrt) |
+| A17 | Rate-Limit aus dem Audit-Log statt eigener Zählertabelle (M3) | Zähler in `users`, Redis, In-Memory | Keine zusätzliche Komponente; append-only Daten sind für die App nicht manipulierbar; einheitliches Verhalten für existierende und unbekannte Konten |
+| A18 | MFA-Zwischenzustand als Sitzung mit `mfa_verified=false` und 5 min Laufzeit (M3) | Zweites Cookie `mfa_pending` | Ein Mechanismus statt zwei; dieselben Schutzmaßnahmen (Hash, Rotation, Widerruf) gelten auch für den Zwischenzustand |
+| A20 | AES-256-GCM aus `cryptography` mit HKDF-abgeleitetem Schlüssel und Nutzer-ID als AAD (M4) | Fernet, Klartext-Secret, eigener KMS | Authentifizierte Verschlüsselung, Bindung an das Konto, Versionierung für Schlüsselwechsel; keine zusätzliche Infrastruktur |
+| A22 | Keine Fremd-Actions: nur `actions/*` per Commit-SHA, Scanner als Container-Images mit Version und Digest (M8) | Marketplace-Actions wie `trivy-action`, `gitleaks-action` | Kleinere Lieferketten-Angriffsfläche (vgl. Kompromittierung von `tj-actions/changed-files` 2025); Repo-Einstellung erlaubt nur GitHub-eigene Actions |
+| A23 | Zentrales Quality Gate statt Abbruch in jedem Scanner-Job (M8) | `--exit-code 1` je Scanner | Ein einziger Pflicht-Check für den Branch-Schutz; alle Berichte entstehen auch bei Funden; prüft zusätzlich Vollständigkeit (fail-closed) |
+| A24 | Lockfiles als `requirements.txt`/`requirements-dev.txt` statt `.lock` (M8) | Sonderoptionen je Scanner | Syft und Trivy erkannten `.lock` nicht und meldeten still „0 Funde“; Standardnamen funktionieren auch mit GitHubs Dependency-Graph |
+| A25 | Trivy entscheidet über die CVSS-Schwelle, pip-audit nur als Warnung (M8) | pip-audit als Gate | pip-audit liefert keine CVSS-Werte; Trivy liefert Severity und CVSS aus NVD/GHSA |
+| A21 | QR-Code im Frontend aus der otpauth-URI statt PNG aus dem Backend (M4) | `qrcode`-Bibliothek im Backend | Weniger Abhängigkeiten im Backend-Image; das Secret wird ohnehin einmalig an den Browser übertragen |
+| A19 | Admin-Bootstrap beim App-Start (Lifespan) statt im Init-Container (M3) | Eigenes CLI-Kommando im Init-Container | Nur das Backend erhält das Secret `admin-bootstrap`; idempotent, legt nur an, solange die Tabelle `users` leer ist |
 | A26 | Envoy Gateway (Gateway API) als Eintrittspunkt, Installation per `install.yaml` ohne Helm (19.10.2026, L1; ersetzt ingress-nginx) | ingress-nginx beibehalten, Traefik, NGINX Gateway Fabric, Chainguard-Fork von ingress-nginx | ingress-nginx ist seit März 2026 eingestellt (keine Releases, keine Security-Patches, Repository read-only) und hatte zuvor kritische CVEs; ein ungepatchter Eintrittspunkt widerspricht Security by Design. Gateway API ist der offizielle Nachfolger, Envoy Gateway wird aktiv gepflegt (v1.9.2). TLS, Redirect, HSTS und Rate-Limit sind typisierte Ressourcen statt freier Annotationen und damit per Schema validierbar. `install.yaml` per SHA-256 geprüft; kind: Proxy-Service als NodePort 30080/30443, per `extraPortMappings` auf 127.0.0.1:80/443 |
 
 ---
