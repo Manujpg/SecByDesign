@@ -1,0 +1,126 @@
+# Mikrosegmentierung im Namespace (Paket L4, SR-10 d, STRIDE: Lateral Movement)
+#
+# Grundsatz: Alles ist verboten, was nicht ausdrücklich erlaubt ist. Erlaubt sind nur die
+# Flüsse aus docs/01-architektur.md, Abschnitt 5:
+#
+#   Envoy-Proxy (envoy-gateway-system) -> praxis-frontend :8080
+#   Envoy-Proxy (envoy-gateway-system) -> praxis-backend  :8000
+#   praxis-backend (api + migrate)     -> praxis-postgres :5432
+#   praxis-backend                     -> kube-dns        :53 (DB_HOST auflösen)
+#
+# Frontend und PostgreSQL brauchen keine Namensauflösung und erhalten auch keinen DNS-Egress
+# (kein Kanal für DNS-Exfiltration). Kein Pod darf ins Internet oder zur Kubernetes-API.
+# Die Policies gelten ab dem Anlegen des Namespaces ("make infra"), also bevor die
+# Workloads starten. kind setzt sie seit v0.24 ohne zusätzliches CNI durch.
+# Nachweis: make check-netpol (scripts/check-netpol.sh).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-from-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: praxis-frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Namespace und Pod in einem Eintrag: nur der Proxy dieses Gateways, nicht der
+        # Gateway-Controller oder andere Pods in envoy-gateway-system.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: envoy
+              gateway.envoyproxy.io/owning-gateway-name: praxis-gateway
+              gateway.envoyproxy.io/owning-gateway-namespace: praxis-termine
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-from-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: praxis-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Voraussetzung für FORWARDED_ALLOW_IPS=10.244.0.0/16 (app-config): Nur der Proxy kann
+    # das Backend erreichen und damit X-Forwarded-For setzen.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: envoy
+              gateway.envoyproxy.io/owning-gateway-name: praxis-gateway
+              gateway.envoyproxy.io/owning-gateway-namespace: praxis-termine
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-to-postgres-and-dns
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: praxis-backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: praxis-postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-from-backend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: praxis-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: praxis-backend
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -3,7 +3,7 @@
 #
 #   make up      Cluster hochfahren, Gateway installieren, Namespace anlegen,
 #                Images laden, Manifeste anwenden, auf Health warten, "Ready"
-#   make infra   Nur Plattform (L1/L2): Cluster, Gateway, Namespace, TLS, Prüfungen
+#   make infra   Nur Plattform (L1/L2/L4): Cluster, Gateway, Namespace, Policies, TLS, Prüfungen
 #   make down    Cluster löschen
 #   make smoke   Health-/Header-Checks über das Gateway
 #   make build   Images lokal bauen
@@ -55,7 +55,7 @@ help: ## Zeigt diese Hilfe
 
 # ----- Hauptziel --------------------------------------------------------------
 .PHONY: up
-up: check-tools cluster gateway namespace tls secrets images deploy wait smoke ## Kompletter Aufbau bis "Ready"
+up: check-tools cluster gateway namespace tls secrets images deploy wait smoke check-netpol ## Kompletter Aufbau bis "Ready"
 	@echo ""
 	@echo "Ready"
 	@echo "  App:   https://localhost  (selbstsigniertes Zertifikat einmalig akzeptieren)"
@@ -113,8 +113,12 @@ gateway-wait: ## Warten, bis der Envoy-Proxy des Gateways läuft
 	kubectl -n envoy-gateway-system wait --for=condition=Ready pod -l "$$sel" --timeout=$(WAIT_TIMEOUT)
 
 .PHONY: check-k8s
-check-k8s: ## Least Privilege im Namespace prüfen (PSA, ServiceAccounts, RBAC, Quota)
+check-k8s: ## Least Privilege im Namespace prüfen (PSA, ServiceAccounts, RBAC, Quota, SecurityContext)
 	./scripts/check-k8s.sh "$(NAMESPACE)"
+
+.PHONY: check-netpol
+check-netpol: ## NetworkPolicies prüfen: erlaubte und gesperrte Verbindungen zwischen den Pods
+	PROBE_IMAGE="$(FRONTEND_PLACEHOLDER)" ./scripts/check-netpol.sh "$(NAMESPACE)"
 
 .PHONY: namespace
 namespace: ## Namespace anlegen

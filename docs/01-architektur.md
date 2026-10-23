@@ -107,7 +107,7 @@ Entwickler-Workstation mit `make up`.
 | 6 | **PostgreSQL StatefulSet** (`praxis-postgres`) | Persistenz | Nur von Backend-Pods erreichbar (NetworkPolicy), Passwort aus Secret, PVC, non-root, kein Ingress |
 | 7 | **Secrets / ConfigMap** | `db-credentials`, `app-session-key`, `admin-bootstrap`, `tls-cert`; `app-config` | Zur Deploy-Zeit erzeugt (Makefile / Pipeline), nie im Repo; nur an die Pods gemountet, die sie brauchen |
 | 8 | **ServiceAccounts** `frontend-sa`, `backend-sa`, `postgres-sa` | Identität der Pods | Keine RBAC-Rechte, `automountServiceAccountToken: false` |
-| 9 | **NetworkPolicies** | Mikrosegmentierung im Namespace | `default-deny-all` (Ingress + Egress), Allow-Regeln: Envoy-Proxy (Namespace `envoy-gateway-system`) → frontend/backend, backend → postgres:5432, Egress DNS |
+| 9 | **NetworkPolicies** | Mikrosegmentierung im Namespace | `default-deny-all` (Ingress + Egress), Allow-Regeln: Envoy-Proxy (Namespace `envoy-gateway-system`) → frontend/backend, backend → postgres:5432, backend → kube-dns:53 (Frontend und Postgres ohne DNS); `infrastructure/k8s/base/network-policies.yaml`, Nachweis `make check-netpol` |
 | 10 | **GitHub Repository (privat)** | Quellcode, Manifeste, Pipeline, Evidence | Branch Protection auf `main` (PR + grüne Checks), keine Secrets im Repo |
 | 11 | **GitHub Actions Pipeline** | SBOM → SAST → SCA → Secret-Scan → Build → Image-Scan → Quality Gate → Push → Deploy-Test → Evidence | Minimale Token-Permissions pro Job, gepinnte Actions (SHA), Reports als Artefakte + Commit nach `/evidence` |
 | 12 | **GHCR (Container-Registry)** | Zwischeninstanz zwischen Pipeline und Cluster | Images per Digest referenziert, optional cosign-signiert |
@@ -149,7 +149,14 @@ Anwendungs-Pods haben keine Rechte auf die Kubernetes-API.
 | Envoy-Proxy (`envoy-gateway-system`) | praxis-frontend | 8080/TCP | SPA ausliefern |
 | Envoy-Proxy (`envoy-gateway-system`) | praxis-backend | 8000/TCP | REST-API unter `/api` |
 | praxis-backend | praxis-postgres | 5432/TCP | Datenbank |
-| alle Pods | kube-dns | 53/UDP+TCP | Namensauflösung |
+| praxis-backend (API und Init-Container `migrate`) | kube-dns | 53/UDP+TCP | Namensauflösung von `praxis-postgres` |
+
+Alles andere sperrt `default-deny-all` (Ingress und Egress), auch Internet und Kubernetes-API.
+Frontend und PostgreSQL lösen keine Namen auf und bekommen daher keinen DNS-Egress (kein Kanal für
+DNS-Exfiltration). Die Freigabe für den Proxy verlangt Namespace **und** Pod-Labels des Gateways
+`praxis-gateway`, der Gateway-Controller selbst erreicht die Anwendung nicht. Getestet (23.10.2026)
+mit `make check-netpol`: ohne Policies waren alle 16 unerwünschten Verbindungen offen, mit Policies sind sie gesperrt;
+erlaubte Flüsse und Kubelet-Probes funktionieren weiter.
 
 Das Frontend spricht **nie** direkt mit dem Backend-Pod, sondern der Browser ruft `/api`
 über denselben Host am Gateway auf (Same-Origin, keine CORS-Freigaben nötig).
