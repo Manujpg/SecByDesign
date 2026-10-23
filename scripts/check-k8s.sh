@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Prüft die Least-Privilege-Eigenschaften des Namespaces gegen den laufenden Cluster
-# (Paket L2, Nachweis SR-10 a/b). Exit-Code 1, sobald eine Prüfung fehlschlägt.
+# (Pakete L2/L3/L5, Nachweis SR-10 a/b/c und SR-06). Exit-Code 1, sobald eine Prüfung
+# fehlschlägt.
 #
 #   scripts/check-k8s.sh [namespace]      (Standard: praxis-termine)
 set -euo pipefail
@@ -50,6 +51,42 @@ kubectl -n "$NAMESPACE" get resourcequota praxis-quota >/dev/null 2>&1 && pass "
   || fail "ResourceQuota praxis-quota fehlt"
 kubectl -n "$NAMESPACE" get limitrange praxis-limits >/dev/null 2>&1 && pass "LimitRange praxis-limits vorhanden" \
   || fail "LimitRange praxis-limits fehlt"
+
+echo "Workloads (SR-10 c; übersprungen, solange nur die Plattform läuft)"
+workloads="$(kubectl -n "$NAMESPACE" get deployments,statefulsets -o name 2>/dev/null || true)"
+[[ -z "$workloads" ]] && echo "  -     keine Deployments/StatefulSets"
+for w in $workloads; do
+  spec='.spec.template.spec'
+  pod="$(kubectl -n "$NAMESPACE" get "$w" -o jsonpath="{$spec.securityContext.runAsNonRoot} {$spec.securityContext.seccompProfile.type} {$spec.automountServiceAccountToken}")"
+  [[ "$pod" == "true RuntimeDefault false" ]] && pass "$w: runAsNonRoot, seccomp RuntimeDefault, kein SA-Token" \
+    || fail "$w: Pod-SecurityContext '$pod' (erwartet: true RuntimeDefault false)"
+  fields='{.name} {.securityContext.readOnlyRootFilesystem} {.securityContext.allowPrivilegeEscalation} {.securityContext.capabilities.drop} {.resources.requests.cpu} {.resources.limits.cpu} {.resources.limits.memory}{"\n"}'
+  while read -r name ro ape drop req_cpu lim_cpu lim_mem; do
+    [[ -z "$name" ]] && continue
+    [[ "$ro $ape $drop" == 'true false ["ALL"]' && -n "$req_cpu" && -n "$lim_cpu" && -n "$lim_mem" ]] \
+      && pass "$w/$name: read-only, keine Eskalation, drop ALL, Requests/Limits" \
+      || fail "$w/$name: readOnly=$ro escalation=$ape drop=$drop requests.cpu=$req_cpu limits=$lim_cpu/$lim_mem"
+  done < <(kubectl -n "$NAMESPACE" get "$w" -o jsonpath="{range $spec.initContainers[*]}$fields{end}{range $spec.containers[*]}$fields{end}")
+done
+
+echo "Secret-Verteilung (SR-06: nur an die Pods, die sie brauchen)"
+secret_refs() {  # $1 Workload, $2 Teilbaum der Pod-Spec
+  kubectl -n "$NAMESPACE" get "$1" -o jsonpath="{.spec.template.spec.$2..secretKeyRef.key} {.spec.template.spec.$2..secretRef.name} {.spec.template.spec.volumes[*].secret.secretName}" 2>/dev/null | xargs
+}
+if kubectl -n "$NAMESPACE" get deployment/praxis-frontend >/dev/null 2>&1; then
+  refs="$(secret_refs deployment/praxis-frontend containers)"
+  [[ -z "$refs" ]] && pass "praxis-frontend: keine Secrets" || fail "praxis-frontend: Secrets '$refs'"
+fi
+if kubectl -n "$NAMESPACE" get deployment/praxis-backend >/dev/null 2>&1; then
+  refs="$(secret_refs deployment/praxis-backend containers)"
+  [[ " $refs " != *" POSTGRES_PASSWORD "* && " $refs " != *" MIGRATE_PASSWORD "* ]] \
+    && pass "praxis-backend/api: kein Superuser- und kein Migrationspasswort ($refs)" \
+    || fail "praxis-backend/api: zu viele Secrets ($refs)"
+  refs="$(secret_refs deployment/praxis-backend initContainers)"
+  [[ " $refs " != *" POSTGRES_PASSWORD "* && " $refs " != *" APP_PASSWORD "* && " $refs " != *" ADMIN_BOOTSTRAP_PASSWORD "* ]] \
+    && pass "praxis-backend/migrate: kein Superuser-, App- oder Admin-Passwort ($refs)" \
+    || fail "praxis-backend/migrate: zu viele Secrets ($refs)"
+fi
 
 echo ""
 if (( failures > 0 )); then

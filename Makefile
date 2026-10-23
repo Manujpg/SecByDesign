@@ -28,6 +28,10 @@ REGISTRY       ?= ghcr.io/manujpg
 BACKEND_IMAGE  ?= $(REGISTRY)/praxis-backend
 FRONTEND_IMAGE ?= $(REGISTRY)/praxis-frontend
 IMAGE_TAG      ?= $(VERSION)
+# TODO(M6/M7): Platzhalter, solange es kein frontend/Dockerfile gibt. Unverändertes Basis-Image
+# (nginx 1.30.6, Stand 22.10.2026), per Digest gepinnt; der Node zieht es selbst.
+FRONTEND_PLACEHOLDER ?= nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+HAS_FRONTEND   := $(wildcard frontend/Dockerfile)
 # Wenn gesetzt, werden Images per Digest aus der Registry gezogen statt lokal gebaut.
 BACKEND_DIGEST  ?=
 FRONTEND_DIGEST ?=
@@ -58,7 +62,7 @@ up: check-tools cluster gateway namespace tls secrets images deploy wait smoke #
 	@echo "  Admin: Initialpasswort siehe Ausgabe von 'make secrets' bzw. Secret admin-bootstrap"
 
 .PHONY: infra
-infra: check-tools cluster gateway namespace tls deploy gateway-wait check-k8s ## Nur Plattform (L1/L2) aufbauen und prüfen
+infra: check-tools cluster gateway namespace tls platform gateway-wait check-k8s ## Nur Plattform (L1/L2) aufbauen und prüfen
 	@echo ""
 	@echo "Plattform bereit: https://localhost läuft über das Gateway (ohne Workloads: 500)"
 
@@ -117,32 +121,67 @@ namespace: ## Namespace anlegen
 	kubectl apply -f infrastructure/k8s/base/namespace.yaml
 
 .PHONY: secrets
-secrets: ## Secrets zur Laufzeit erzeugen (nie im Repo)  TODO L5: scripts/generate-secrets.sh
+secrets: ## Secrets zur Laufzeit erzeugen (nie im Repo), Admin-Initialpasswort einmalig ausgeben
 	./scripts/generate-secrets.sh "$(NAMESPACE)"
+
+# Images, die "make images" in den Cluster lädt (ohne frontend/Dockerfile nur das Backend).
+LOCAL_IMAGES := $(BACKEND_IMAGE):$(IMAGE_TAG) $(if $(HAS_FRONTEND),$(FRONTEND_IMAGE):$(IMAGE_TAG))
 
 .PHONY: images
 images: ## Images bereitstellen: Pull per Digest aus GHCR oder lokaler Build, dann kind load
-	@if [ -n "$(BACKEND_DIGEST)" ] && [ -n "$(FRONTEND_DIGEST)" ]; then \
+	@if [ -n "$(BACKEND_DIGEST)" ]; then \
 	  docker pull "$(BACKEND_IMAGE)@$(BACKEND_DIGEST)"; \
-	  docker pull "$(FRONTEND_IMAGE)@$(FRONTEND_DIGEST)"; \
 	  docker tag "$(BACKEND_IMAGE)@$(BACKEND_DIGEST)" "$(BACKEND_IMAGE):$(IMAGE_TAG)"; \
-	  docker tag "$(FRONTEND_IMAGE)@$(FRONTEND_DIGEST)" "$(FRONTEND_IMAGE):$(IMAGE_TAG)"; \
+	  if [ -n "$(HAS_FRONTEND)" ]; then \
+	    [ -n "$(FRONTEND_DIGEST)" ] || { echo "FRONTEND_DIGEST fehlt"; exit 1; }; \
+	    docker pull "$(FRONTEND_IMAGE)@$(FRONTEND_DIGEST)"; \
+	    docker tag "$(FRONTEND_IMAGE)@$(FRONTEND_DIGEST)" "$(FRONTEND_IMAGE):$(IMAGE_TAG)"; \
+	  fi; \
 	else \
 	  echo "Kein Digest gesetzt – baue Images lokal"; \
 	  $(MAKE) build; \
 	fi
-	kind load docker-image --name "$(CLUSTER)" "$(BACKEND_IMAGE):$(IMAGE_TAG)" "$(FRONTEND_IMAGE):$(IMAGE_TAG)"
+	kind load docker-image --name "$(CLUSTER)" $(LOCAL_IMAGES)
 
 .PHONY: build
-build: ## Beide Images lokal bauen
+build: ## Images lokal bauen (Frontend erst, wenn frontend/Dockerfile existiert)
 	docker build -t "$(BACKEND_IMAGE):$(IMAGE_TAG)" \
 	  --build-arg APP_VERSION="$(VERSION)" --build-arg GIT_SHA="$(GIT_SHA)" ./backend
+ifneq ($(HAS_FRONTEND),)
 	docker build -t "$(FRONTEND_IMAGE):$(IMAGE_TAG)" \
 	  --build-arg APP_VERSION="$(VERSION)" --build-arg GIT_SHA="$(GIT_SHA)" ./frontend
+else
+	@echo "TODO(M6/M7): kein frontend/Dockerfile – Frontend läuft mit Platzhalter $(FRONTEND_PLACEHOLDER)"
+endif
+
+.PHONY: platform
+platform: ## Nur Plattform-Manifeste anwenden (Namespace, Identitäten, Kontingente, Gateway, Routen)
+	kubectl apply -k infrastructure/k8s/base
+
+# Die Manifeste nennen die Images nur logisch (praxis-backend, praxis-frontend). deploy legt
+# in $(CACHE_DIR)/deploy eine Kustomization über das Overlay, die Registry und Tag einsetzt;
+# das Overlay selbst bleibt unverändert.
+FRONTEND_REF := $(if $(HAS_FRONTEND),$(FRONTEND_IMAGE):$(IMAGE_TAG),$(FRONTEND_PLACEHOLDER))
 
 .PHONY: deploy
-deploy: ## Manifeste anwenden (Kustomize-Overlay)
-	kubectl apply -k "$(OVERLAY)"
+deploy: ## Manifeste anwenden (Kustomize-Overlay mit Images aus images/build)
+	@d="$(CACHE_DIR)/deploy"; mkdir -p "$$d"; \
+	ref="$(FRONTEND_REF)"; \
+	if [[ "$$ref" == *@* ]]; then fe="    newName: $${ref%@*}"$$'\n'"    digest: $${ref#*@}"; \
+	else fe="    newName: $${ref%:*}"$$'\n'"    newTag: $${ref##*:}"; fi; \
+	printf '%s\n' \
+	  "# Erzeugt von make deploy – nicht bearbeiten" \
+	  "apiVersion: kustomize.config.k8s.io/v1beta1" \
+	  "kind: Kustomization" \
+	  "resources:" \
+	  "  - $$(realpath --relative-to="$$d" "$(OVERLAY)")" \
+	  "images:" \
+	  "  - name: praxis-backend" \
+	  "    newName: $(BACKEND_IMAGE)" \
+	  "    newTag: \"$(IMAGE_TAG)\"" \
+	  "  - name: praxis-frontend" \
+	  "$$fe" > "$$d/kustomization.yaml"; \
+	kubectl apply -k "$$d"
 
 .PHONY: wait
 wait: gateway-wait ## Warten, bis Gateway und alle Workloads bereit sind
@@ -152,7 +191,15 @@ wait: gateway-wait ## Warten, bis Gateway und alle Workloads bereit sind
 
 .PHONY: smoke
 smoke: ## Smoke-Test über das Gateway  TODO L6: scripts/smoke.sh
-	./scripts/smoke.sh https://localhost
+	@if [ -x scripts/smoke.sh ]; then \
+	  ./scripts/smoke.sh https://localhost; \
+	else \
+	  echo "TODO(L6): scripts/smoke.sh fehlt – Minimalprüfung von Health/Ready über das Gateway"; \
+	  for p in /api/v1/healthz /api/v1/readyz /; do \
+	    code="$$(curl -sk -o /dev/null -w '%{http_code}' "https://localhost$$p")"; \
+	    echo "  GET $$p -> $$code"; [ "$$code" = 200 ] || exit 1; \
+	  done; \
+	fi
 
 .PHONY: down
 down: ## Cluster löschen

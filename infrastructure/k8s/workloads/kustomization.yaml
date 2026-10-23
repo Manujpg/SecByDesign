@@ -1,0 +1,33 @@
+# Workloads der Anwendung (Pakete L3 und L5), getrennt von der Plattform in ../base
+#
+#   ../base     Namespace, Identitäten, Kontingente, Gateway, Routen (L1/L2) -> make infra
+#   workloads   ConfigMap, PostgreSQL, Backend, Frontend, Services (L3/L5)   -> make deploy
+#
+# Die Overlays (local, ci) binden beides ein. Die Images stehen in den Manifesten als
+# logische Namen praxis-backend/praxis-frontend; "make deploy" legt eine Kustomization
+# darüber, die Registry und Tag bzw. Digest einsetzt. Die Secrets db-credentials,
+# app-session-key und admin-bootstrap erzeugt scripts/generate-secrets.sh (nie im Repo).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: praxis-termine
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: praxis-termine
+    includeSelectors: false
+    includeTemplates: true
+resources:
+  - config.yaml
+  - postgres.yaml
+  - backend.yaml
+  - frontend.yaml
+configMapGenerator:
+  # Rollen-Skript als echte Datei im Repo, im Cluster als ConfigMap eingehängt.
+  - name: praxis-postgres-initdb
+    files:
+      - initdb/01-roles.sh
+    options:
+      # Fester Name: Das Skript wirkt nur bei der Erstinitialisierung, ein Hash-Suffix
+      # brächte nur Neustarts und verwaiste ConfigMaps (Quota).
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/component: database
